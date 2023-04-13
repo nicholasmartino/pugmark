@@ -1,8 +1,8 @@
 ---
-title: Autotrain Advanced
-emoji: 💩
-colorFrom: red
-colorTo: red
+title: AutoTrain Advanced
+emoji: 🚀
+colorFrom: blue
+colorTo: green
 sdk: docker
 pinned: false
 ---
