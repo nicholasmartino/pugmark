@@ -13,6 +13,8 @@ hf_oauth_scopes:
  - manage-repos
  - inference-api
  - read-billing
+tags:
+ - autotrain
 ---
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
