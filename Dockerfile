@@ -1,2 +1,2 @@
-FROM huggingface/autotrain-advanced:latest
+FROM huggingface/autotrain-advanced:7f5ff64
 CMD pip uninstall -y autotrain-advanced && pip install -U autotrain-advanced && autotrain app --host 0.0.0.0 --port 7860 --workers 1
