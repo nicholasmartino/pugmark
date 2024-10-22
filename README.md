@@ -17,4 +17,18 @@ tags:
  - autotrain
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+# Docs
+
+https://huggingface.co/docs/autotrain
+
+# Citation
+
+@misc{thakur2024autotrainnocodetrainingstateoftheart,
+      title={AutoTrain: No-code training for state-of-the-art models}, 
+      author={Abhishek Thakur},
+      year={2024},
+      eprint={2410.15735},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2410.15735}, 
+}
