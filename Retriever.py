@@ -15,11 +15,11 @@ from tqdm import tqdm
 
 mpl.use("Agg")
 
-UPDATE_FOOTPRINTS = True
-UPDATE_PARCELS = True
+
 CEILING_HEIGHT = 3
 
-if UPDATE_FOOTPRINTS:
+
+def update_footprints():
     # Download BC footprints from StatCan
     zipfile.ZipFile(
         io.BytesIO(
@@ -30,7 +30,8 @@ if UPDATE_FOOTPRINTS:
     ).extractall("tmp/")
     print("Footprint data downloaded")
 
-if UPDATE_PARCELS:
+
+def update_parcels():
     # Download parcels from BC government open data
     zipfile.ZipFile(
         io.BytesIO(
@@ -43,11 +44,20 @@ if UPDATE_PARCELS:
 
 
 def load_buildings():
+    parcel_path = "data/Metro Vancouver Regional District/bc_assessment/parcel.feather"
+    buildings_dir = "data/Metro Vancouver Regional District/statistics_canada"
+    buildings_file = "building_footprints.feather"
+    buildings_path = f"{buildings_dir}/{buildings_file}"
+
+    if not os.path.exists(buildings_path):
+        update_footprints()
+        os.makedirs(os.path.dirname(buildings_path), exist_ok=True)
+        gdf = gpd.read_file("tmp/ODB_BritishColumbia/odb_britishcolumbia.shp")
+        gdf.to_feather(buildings_path)
+
     # Load buildings and join height from BC Assessment
-    buildings_gdf = gpd.read_file("data/BritishColumbia.geojson").to_crs(26910)
-    bca = gpd.read_file(
-        "G:\My Drive\Databases\BCAssessment\Metro Vancouver_parcels.geojson"
-    )
+    buildings_gdf = gpd.read_feather(buildings_path).to_crs(26910)
+    bca = gpd.read_feather(parcel_path)
     buildings_gdf["bid"] = buildings_gdf.reset_index(drop=True).index
     buildings_centroids = buildings_gdf.copy()
     buildings_centroids["geometry"] = buildings_centroids.centroid.buffer(1)
@@ -60,7 +70,7 @@ def load_buildings():
     buildings_gdf["height"] = buildings_gdf["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
     buildings_gdf["area"] = buildings_gdf.area
     buildings_gdf["volume"] = buildings_gdf["area"] * buildings_gdf["height"]
-    buildings_gdf.to_feather("data/feather/buildings.feather")
+    buildings_gdf.to_feather("data/processed/samples/building.feather")
     return buildings_gdf
 
 
