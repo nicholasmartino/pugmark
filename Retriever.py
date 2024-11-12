@@ -130,7 +130,7 @@ def join_parcel_id(parcel_gdf, building_gdf):
     return Fabric(parcel_gdf, building_gdf)
 
 
-def plot_parcels(parcel_gdf, building_gdf):
+def plot_parcels(parcel_gdf, building_gdf, target_path):
     # Filter parcels by area and fsr
     processed_parcel_gdf = (
         parcel_gdf.loc[:, ["pid", "area", "built_volume", "fsr", "geometry"]]
@@ -160,8 +160,9 @@ def plot_parcels(parcel_gdf, building_gdf):
     parcel_ids = filtered_parcel_gdf.pid
 
     # Get parcels not yet plotted
-    all_dir = "data/footprints/all"
-    plotted = os.listdir(all_dir)
+    if not os.path.exists(target_path):
+        os.makedirs(target_path, exist_ok=True)
+    plotted = os.listdir(target_path)
     plotted_int = [int(i.split(".png")[0]) for i in plotted]
     not_plotted = set.difference(set(parcel_ids), set(plotted_int))
 
@@ -225,7 +226,7 @@ def plot_parcels(parcel_gdf, building_gdf):
                 ax[0].set_axis_off()
                 ax[1].set_axis_off()
 
-                fig.savefig(fname=f"{all_dir}/{j}.png", dpi=64)
+                fig.savefig(fname=f"{target_path}/{j}.png", dpi=64)
                 plt.close()
 
         gc.collect()
@@ -234,14 +235,14 @@ def plot_parcels(parcel_gdf, building_gdf):
 
 if __name__ == "__main__":
     data_dir = "data/Metro Vancouver Regional District"
-    building_source = f"{data_dir}/statistics_canada/building_footprints.feather"
-    building_target = f"{data_dir}/bc_assessment/parcel.feather"
+    building_source_path = f"{data_dir}/statistics_canada/building_footprints.feather"
+    plot_target_dir = f"{data_dir}/processed/footprints"
 
-    buildings = load_buildings(buildings_path=building_source)
+    buildings = load_buildings(building_source_path)
     parcels = gpd.read_feather(f"{data_dir}/bc_assessment/parcel.feather")
 
     processed_buildings = process_buildings(buildings, parcels)
     processed_parcels = calculate_fsr(parcels, processed_buildings)
 
     fabric = join_parcel_id(processed_parcels.gdf, processed_buildings)
-    plot_parcels(fabric.parcels.gdf, fabric.buildings)
+    plot_parcels(fabric.parcels.gdf, fabric.buildings, plot_target_dir)
