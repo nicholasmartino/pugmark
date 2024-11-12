@@ -86,14 +86,18 @@ def process_buildings(buildings_gdf, parcel_gdf):
 
 
 def calculate_fsr(parcel_gdf, building_gdf):
-    pcl = Parcels(gdf=parcel_gdf)
     buildings = Buildings(gdf=building_gdf)
     buildings_centroids = buildings.gdf.copy()
     buildings_centroids["geometry"] = buildings_centroids.centroid.buffer(1)
+
+    pcl = Parcels(gdf=parcel_gdf)
     parcels_buildings_join = pcl.gdf.sjoin(
         buildings_centroids.loc[:, ["id", "volume", "geometry"]], rsuffix="Buildings"
     )
-    sum_by_parcel = parcels_buildings_join.groupby("pid", as_index=False).sum()
+    sum_by_parcel = parcels_buildings_join\
+        .loc[:, [c for c in parcels_buildings_join.columns if c not in ["geometry"]]]\
+        .groupby("pid", as_index=False).sum()
+
     pcl.gdf.loc[sum_by_parcel["pid"], "built_volume"] = list(sum_by_parcel["volume"])
     pcl.gdf["fsr"] = (pcl.gdf["built_volume"] / CEILING_HEIGHT) / pcl.gdf.area
     pcl.gdf = pcl.gdf.drop_duplicates(subset=["geometry"])
