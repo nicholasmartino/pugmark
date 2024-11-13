@@ -4,17 +4,18 @@ import io
 import os
 import zipfile
 
+import warnings
 import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import requests
 
 from city.Fabric import Buildings, Parcels
-from shapely import affinity
+from shapely.geometry import Polygon
 from tqdm import tqdm
 
 mpl.use("Agg")
-
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 CEILING_HEIGHT = 3
 
@@ -130,6 +131,11 @@ def join_parcel_id(parcel_gdf, building_gdf):
     return Fabric(parcel_gdf, building_gdf)
 
 
+def translate_polygon(polygon, x_offset, y_offset):
+    # Applies offset to each coordinate
+    return Polygon([(x + x_offset, y + y_offset) for x, y in polygon.exterior.coords])
+
+
 def plot_parcels(parcel_gdf, building_gdf, target_path):
     # Filter parcels by area and fsr
     processed_parcel_gdf = (
@@ -171,11 +177,9 @@ def plot_parcels(parcel_gdf, building_gdf, target_path):
 
         # Move convex hull to parcel to standardize the plot scale
         p_centroid = filtered_parcel_gdf[filtered_parcel_gdf["pid"] == j].centroid
-        largest_overlap = affinity.translate(
-            largest,
-            (p_centroid.x - largest_centroid.x).values,
-            (p_centroid.y - largest_centroid.y).values,
-        )
+        x_offset = p_centroid.x - largest_centroid.x
+        y_offset = p_centroid.y - largest_centroid.y
+        largest_overlap = translate_polygon(largest, x_offset, y_offset)
         moved = gpd.GeoDataFrame({"geometry": [largest_overlap]}, geometry="geometry")
 
         # # Filter buildings with this parcel id
@@ -245,4 +249,4 @@ if __name__ == "__main__":
     processed_parcels = calculate_fsr(parcels, processed_buildings)
 
     fabric = join_parcel_id(processed_parcels.gdf, processed_buildings)
-    plot_parcels(fabric.parcels.gdf, fabric.buildings, plot_target_dir)
+    plot_parcels(fabric.parcels.gdf, fabric.buildings.gdf, plot_target_dir)
