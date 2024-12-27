@@ -95,9 +95,13 @@ def calculate_fsr(parcel_gdf, building_gdf):
     parcels_buildings_join = pcl.gdf.sjoin(
         buildings_centroids.loc[:, ["id", "volume", "geometry"]], rsuffix="Buildings"
     )
-    sum_by_parcel = parcels_buildings_join\
-        .loc[:, [c for c in parcels_buildings_join.columns if c not in ["geometry"]]]\
-        .groupby("pid", as_index=False).sum()
+    sum_by_parcel = (
+        parcels_buildings_join.loc[
+            :, [c for c in parcels_buildings_join.columns if c not in ["geometry"]]
+        ]
+        .groupby("pid", as_index=False)
+        .sum()
+    )
 
     pcl.gdf.loc[sum_by_parcel["pid"], "built_volume"] = list(sum_by_parcel["volume"])
     pcl.gdf["fsr"] = (pcl.gdf["built_volume"] / CEILING_HEIGHT) / pcl.gdf.area
@@ -247,6 +251,7 @@ if __name__ == "__main__":
 
     processed_buildings = process_buildings(buildings, parcels)
     processed_parcels = calculate_fsr(parcels, processed_buildings)
+    processed_parcels.gdf.to_feather(f"{data_dir}/processed/parcel_far.feather")
 
     fabric = join_parcel_id(processed_parcels.gdf, processed_buildings)
     plot_parcels(fabric.parcels.gdf, fabric.buildings.gdf, plot_target_dir)
