@@ -223,6 +223,14 @@ def plot_parcels(parcel_gdf, building_gdf, target_path):
     return
 
 
+def export_parcels(parcel: Parcels, directory: str):
+    parcel.gdf.to_feather(f"{directory}/parcel_far.feather")
+    parcel.gdf.loc[
+        :, ["pid", "ACTUAL_TOTAL", "ACTUAL_LAND", "fsr", "geometry"]
+    ].to_file(f"{directory}/parcel_far.geojson", driver="GeoJSON")
+    return
+
+
 if __name__ == "__main__":
     data_dir = "data/Metro Vancouver Regional District"
     building_source_path = f"{data_dir}/statistics_canada/building_footprints.feather"
@@ -232,7 +240,7 @@ if __name__ == "__main__":
     parcels = gpd.read_feather(f"{data_dir}/bc_assessment/parcel.feather")
 
     processed_parcels = calculate_fsr(parcels, buildings)
-    processed_parcels.gdf.to_feather(f"{data_dir}/processed/samples/parcel_far.feather")
+    export_parcels(processed_parcels, f"{data_dir}/processed/samples")
 
     fabric = join_parcel_id(processed_parcels.gdf, buildings)
     plot_parcels(fabric.parcels.gdf, fabric.buildings.gdf, plot_target_dir)
