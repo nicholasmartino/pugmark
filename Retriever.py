@@ -64,37 +64,26 @@ def load_buildings(buildings_path):
     return buildings_gdf
 
 
-def process_buildings(buildings_gdf, parcel_gdf):
-    footprints = buildings_gdf.copy()
-    footprints["building_area"] = footprints.area
-
-    overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["building_area", "geometry"]])
-    grouped = overlay.groupby("pid", as_index=False).sum()
-
-    grouped["height"] = grouped["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
-    grouped["volume"] = grouped["area"] * grouped["height"]
-    return grouped
-
-
 def calculate_fsr(parcel_gdf, building_gdf):
+    footprints = building_gdf.copy()
+    parcel_gdf.index = parcel_gdf.reset_index(drop=True).index
+    parcel_gdf["pid"] = parcel_gdf.index
+    footprints["footprint_area"] = footprints.area
+
+    overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["footprint_area", "geometry"]])
+    parcel_gdf.loc[overlay["pid"], "footprint_area"] = (
+        overlay.loc[:, ["pid", "footprint_area"]].groupby("pid", as_index=False).sum()
+    )
+
+    parcel_gdf["height"] = parcel_gdf["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
+    parcel_gdf["volume"] = parcel_gdf["footprint_area"] * parcel_gdf["height"]
+    parcel_gdf["fsr"] = (parcel_gdf["volume"] / CEILING_HEIGHT) / parcel_gdf.area
+
     buildings = Buildings(gdf=building_gdf)
     buildings_centroids = buildings.gdf.copy()
     buildings_centroids["geometry"] = buildings_centroids.centroid.buffer(1)
 
     pcl = Parcels(gdf=parcel_gdf)
-    parcels_buildings_join = pcl.gdf.sjoin(
-        buildings_centroids.loc[:, ["id", "volume", "geometry"]], rsuffix="Buildings"
-    )
-    sum_by_parcel = (
-        parcels_buildings_join.loc[
-            :, [c for c in parcels_buildings_join.columns if c not in ["geometry"]]
-        ]
-        .groupby("pid", as_index=False)
-        .sum()
-    )
-
-    pcl.gdf.loc[sum_by_parcel["pid"], "built_volume"] = list(sum_by_parcel["volume"])
-    pcl.gdf["fsr"] = (pcl.gdf["built_volume"] / CEILING_HEIGHT) / pcl.gdf.area
     pcl.gdf = pcl.gdf.drop_duplicates(subset=["geometry"])
     return pcl
 
@@ -239,9 +228,8 @@ if __name__ == "__main__":
     buildings = load_buildings(building_source_path)
     parcels = gpd.read_feather(f"{data_dir}/bc_assessment/parcel.feather")
 
-    processed_buildings = process_buildings(buildings, parcels)
-    processed_parcels = calculate_fsr(parcels, processed_buildings)
-    processed_parcels.gdf.to_feather(f"{data_dir}/processed/parcel_far.feather")
+    processed_parcels = calculate_fsr(parcels, buildings)
+    processed_parcels.gdf.to_feather(f"{data_dir}/processed/samples/parcel_far.feather")
 
-    fabric = join_parcel_id(processed_parcels.gdf, processed_buildings)
+    fabric = join_parcel_id(processed_parcels.gdf, buildings)
     plot_parcels(fabric.parcels.gdf, fabric.buildings.gdf, plot_target_dir)
