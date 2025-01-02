@@ -65,25 +65,15 @@ def load_buildings(buildings_path):
 
 
 def process_buildings(buildings_gdf, parcel_gdf):
-    buildings_centroids = buildings_gdf.copy()
-    buildings_centroids["geometry"] = buildings_centroids.centroid.buffer(1)
+    footprints = buildings_gdf.copy()
+    footprints["building_area"] = footprints.area
 
-    join = buildings_centroids.sjoin(
-        parcel_gdf.loc[:, ["NUMBER_OF_STOREYS", "geometry"]]
-    )
-    grouped = (
-        join.loc[:, list(set(join.columns).difference(["geometry"]))]
-        .groupby("bid", as_index=False)
-        .max()
-    )
-    buildings_gdf.loc[grouped["bid"], "NUMBER_OF_STOREYS"] = list(
-        grouped["NUMBER_OF_STOREYS"]
-    )
-    buildings_gdf = buildings_gdf[~buildings_gdf["NUMBER_OF_STOREYS"].isna()]
-    buildings_gdf["height"] = buildings_gdf["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
-    buildings_gdf["area"] = buildings_gdf.area
-    buildings_gdf["volume"] = buildings_gdf["area"] * buildings_gdf["height"]
-    return buildings_gdf
+    overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["building_area", "geometry"]])
+    grouped = overlay.groupby("pid", as_index=False).sum()
+
+    grouped["height"] = grouped["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
+    grouped["volume"] = grouped["area"] * grouped["height"]
+    return grouped
 
 
 def calculate_fsr(parcel_gdf, building_gdf):
