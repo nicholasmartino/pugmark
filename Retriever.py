@@ -68,14 +68,17 @@ def calculate_fsr(parcel_gdf, building_gdf):
     footprints = building_gdf.copy()
     parcel_gdf.index = parcel_gdf.reset_index(drop=True).index
     parcel_gdf["pid"] = parcel_gdf.index
-    footprints["footprint_area"] = footprints.area
 
-    overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["footprint_area", "geometry"]])
+    overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["geometry"]])
+    overlay["footprint_area"] = overlay.area
     parcel_gdf.loc[overlay["pid"], "footprint_area"] = (
         overlay.loc[:, ["pid", "footprint_area"]].groupby("pid", as_index=False).sum()
     )
 
-    parcel_gdf["height"] = parcel_gdf["NUMBER_OF_STOREYS"] * CEILING_HEIGHT
+    storeys = "NUMBER_OF_STOREYS"
+    parcel_filter = parcel_gdf[storeys].isna() | parcel_gdf[storeys] == 0
+    parcel_gdf.loc[parcel_filter.values, storeys] = 1
+    parcel_gdf["height"] = parcel_gdf[storeys] * CEILING_HEIGHT
     parcel_gdf["volume"] = parcel_gdf["footprint_area"] * parcel_gdf["height"]
     parcel_gdf["fsr"] = (parcel_gdf["volume"] / CEILING_HEIGHT) / parcel_gdf.area
 
