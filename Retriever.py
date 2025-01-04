@@ -66,21 +66,29 @@ def load_buildings(buildings_path):
 
 def calculate_fsr(parcel_gdf, building_gdf):
     footprints = building_gdf.copy()
-    parcel_gdf.index = parcel_gdf.reset_index(drop=True).index
-    parcel_gdf["pid"] = parcel_gdf.index
-
     overlay = gpd.overlay(parcel_gdf, footprints.loc[:, ["geometry"]])
     overlay["footprint_area"] = overlay.area
-    parcel_gdf.loc[overlay["pid"], "footprint_area"] = (
-        overlay.loc[:, ["pid", "footprint_area"]].groupby("pid", as_index=False).sum()
-    )
+
+    # Compute the summed footprint_area for each 'id' in overlay
+    summed_footprint = overlay.groupby("id")["footprint_area"].sum()
+
+    # Map the summed values back to parcel_gdf
+    parcel_gdf["footprint_area"] = parcel_gdf["id"].map(summed_footprint)
 
     storeys = "NUMBER_OF_STOREYS"
-    parcel_filter = parcel_gdf[storeys].isna() | parcel_gdf[storeys] == 0
-    parcel_gdf.loc[parcel_filter.values, storeys] = 1
+    parcel_gdf.loc[parcel_gdf[storeys].isna(), storeys] = 2
+    parcel_gdf.loc[parcel_gdf[storeys] == 0, storeys] = 2
     parcel_gdf["height"] = parcel_gdf[storeys] * CEILING_HEIGHT
     parcel_gdf["volume"] = parcel_gdf["footprint_area"] * parcel_gdf["height"]
     parcel_gdf["fsr"] = (parcel_gdf["volume"] / CEILING_HEIGHT) / parcel_gdf.area
+
+    parcel_gdf.loc[
+        :, ["id", "footprint_area", "height", "volume", "fsr", storeys, "geometry"]
+    ].to_file("/Users/nicholasmartino/Desktop/parcel.geojson", driver="GeoJSON")
+    footprints.loc[:, ["geometry"]].to_file(
+        "/Users/nicholasmartino/Desktop/footprints.geojson", driver="GeoJSON"
+    )
+    overlay.to_file("/Users/nicholasmartino/Desktop/overlay.geojson", driver="GeoJSON")
 
     buildings = Buildings(gdf=building_gdf)
     buildings_centroids = buildings.gdf.copy()
@@ -125,9 +133,7 @@ def translate_polygon(polygon, x_offset, y_offset):
 def plot_parcels(parcel_gdf, building_gdf, target_path):
     # Filter parcels by area and fsr
     processed_parcel_gdf = (
-        parcel_gdf.loc[:, ["pid", "area", "built_volume", "fsr", "geometry"]]
-        .dropna()
-        .copy()
+        parcel_gdf.loc[:, ["pid", "area", "volume", "fsr", "geometry"]].dropna().copy()
     )
     filtered_parcel_gdf = processed_parcel_gdf[
         (processed_parcel_gdf.area > 300)
@@ -226,8 +232,9 @@ def plot_parcels(parcel_gdf, building_gdf, target_path):
 def export_parcels(parcel: Parcels, directory: str):
     parcel.gdf.to_feather(f"{directory}/parcel_far.feather")
     parcel.gdf.loc[
-        :, ["pid", "ACTUAL_TOTAL", "ACTUAL_LAND", "fsr", "geometry"]
-    ].to_file(f"{directory}/parcel_far.geojson", driver="GeoJSON")
+        ~parcel.gdf["fsr"].isna() & parcel.gdf["fsr"] > 0,
+        ["pid", "ACTUAL_TOTAL", "ACTUAL_LAND", "fsr", "geometry"],
+    ].to_crs(4326).to_file(f"{directory}/parcel_far.geojson", driver="GeoJSON")
     return
 
 
