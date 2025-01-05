@@ -1,15 +1,13 @@
 import gc
 import io
-import io
 import os
+import warnings
 import zipfile
 
-import warnings
 import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import requests
-
 from city.Fabric import Buildings, Parcels
 from shapely.geometry import Polygon
 from tqdm import tqdm
@@ -76,6 +74,9 @@ def calculate_fsr(parcel_gdf, building_gdf):
     parcel_gdf["footprint_area"] = parcel_gdf["id"].map(summed_footprint)
 
     storeys = "NUMBER_OF_STOREYS"
+
+    # TODO: Guess missing number of storeys from footprint area and total building area (BCA)
+
     parcel_gdf.loc[parcel_gdf[storeys].isna(), storeys] = 2
     parcel_gdf.loc[parcel_gdf[storeys] == 0, storeys] = 2
     parcel_gdf["height"] = parcel_gdf[storeys] * CEILING_HEIGHT
