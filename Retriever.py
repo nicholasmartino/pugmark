@@ -75,7 +75,16 @@ def calculate_fsr(parcel_gdf, building_gdf):
 
     storeys = "NUMBER_OF_STOREYS"
 
-    # TODO: Guess missing number of storeys from footprint area and total building area (BCA)
+    # Guess missing number of storeys from footprint area and total building area (BCA)
+    building_area_filter = (
+        parcel_gdf[storeys].isna() & ~parcel_gdf["GROSS_BUILDING_AREA"].isna()
+    )
+    parcel_gdf.loc[building_area_filter, storeys] = (
+        parcel_gdf[building_area_filter]["GROSS_BUILDING_AREA"]
+        / parcel_gdf[building_area_filter]["footprint_area"]
+    )
+
+    # Guess missing number of storeys from OpenStreetMap
 
     parcel_gdf.loc[parcel_gdf[storeys].isna(), storeys] = 2
     parcel_gdf.loc[parcel_gdf[storeys] == 0, storeys] = 2
