@@ -2,12 +2,13 @@ import datetime
 import os
 import time
 
+import numpy as np
 import tensorflow as tf
+from datasets import Dataset
 from google.colab import drive
 from IPython import display
 from matplotlib import pyplot as plt
-
-drive.mount("/content/gdrive")
+from transformers import Trainer, TrainingArguments
 
 # _URL = 'https://people.eecs.berkeley.edu/~tinghuiz/projects/pix2pix/datasets/facades.tar.gz'
 # path_to_zip = tf.keras.utils.get_file('facades.tar.gz', origin=_URL, extract=True)
@@ -535,3 +536,94 @@ GENERATE USING TEST DATASET
 # Run the trained model on a few examples from the test dataset
 for inp, tar in test_dataset.take(5):
     generate_images(generator, inp, tar)
+
+
+# Modify the data loading and preprocessing to work with HuggingFace datasets
+def prepare_dataset(image_paths, is_training=True):
+    def process_image(image_path):
+        input_image, real_image = load(image_path)
+        if is_training:
+            input_image, real_image = random_jitter(input_image, real_image)
+        else:
+            input_image, real_image = resize(
+                input_image, real_image, IMG_HEIGHT, IMG_WIDTH
+            )
+        input_image, real_image = normalize(input_image, real_image)
+
+        return {"input_images": input_image.numpy(), "real_images": real_image.numpy()}
+
+    # Create HuggingFace dataset
+    dataset = Dataset.from_dict({"image_paths": image_paths})
+    dataset = dataset.map(
+        lambda x: process_image(x["image_paths"]), remove_columns=["image_paths"]
+    )
+    return dataset
+
+
+# Modify the training setup
+class Pix2PixTrainer(Trainer):
+    def __init__(self, generator, discriminator, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.generator = generator
+        self.discriminator = discriminator
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        input_images = inputs["input_images"]
+        real_images = inputs["real_images"]
+
+        gen_output = self.generator(input_images, training=True)
+        disc_real_output = self.discriminator(
+            [input_images, real_images], training=True
+        )
+        disc_generated_output = self.discriminator(
+            [input_images, gen_output], training=True
+        )
+
+        gen_total_loss, gen_gan_loss, gen_l1_loss = generator_loss(
+            disc_generated_output, gen_output, real_images
+        )
+        disc_loss = discriminator_loss(disc_real_output, disc_generated_output)
+
+        total_loss = gen_total_loss + disc_loss
+
+        return (
+            (total_loss, {"gen_loss": gen_total_loss, "disc_loss": disc_loss})
+            if return_outputs
+            else total_loss
+        )
+
+
+# Setup training
+training_args = TrainingArguments(
+    output_dir="./pix2pix_results",
+    num_train_epochs=EPOCHS,
+    per_device_train_batch_size=BATCH_SIZE,
+    per_device_eval_batch_size=BATCH_SIZE,
+    logging_dir="./logs",
+    logging_steps=100,
+    save_steps=1000,
+    evaluation_strategy="epoch",
+)
+
+# Prepare datasets
+train_files = tf.data.Dataset.list_files(PATH + "train/*.jpg").as_numpy_iterator()
+test_files = tf.data.Dataset.list_files(PATH + "test/*.jpg").as_numpy_iterator()
+
+train_dataset = prepare_dataset(list(train_files), is_training=True)
+test_dataset = prepare_dataset(list(test_files), is_training=False)
+
+# Initialize models
+generator = Generator()
+discriminator = Discriminator()
+
+# Create trainer
+trainer = Pix2PixTrainer(
+    generator=generator,
+    discriminator=discriminator,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+)
+
+# Train the model
+trainer.train()
