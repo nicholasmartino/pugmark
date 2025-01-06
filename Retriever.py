@@ -92,14 +92,6 @@ def calculate_fsr(parcel_gdf, building_gdf):
     parcel_gdf["volume"] = parcel_gdf["footprint_area"] * parcel_gdf["height"]
     parcel_gdf["fsr"] = (parcel_gdf["volume"] / CEILING_HEIGHT) / parcel_gdf.area
 
-    parcel_gdf.loc[
-        :, ["id", "footprint_area", "height", "volume", "fsr", storeys, "geometry"]
-    ].to_file("/Users/nicholasmartino/Desktop/parcel.geojson", driver="GeoJSON")
-    footprints.loc[:, ["geometry"]].to_file(
-        "/Users/nicholasmartino/Desktop/footprints.geojson", driver="GeoJSON"
-    )
-    overlay.to_file("/Users/nicholasmartino/Desktop/overlay.geojson", driver="GeoJSON")
-
     buildings = Buildings(gdf=building_gdf)
     buildings_centroids = buildings.gdf.copy()
     buildings_centroids["geometry"] = buildings_centroids.centroid.buffer(1)
