@@ -1,10 +1,10 @@
 import os
 
-import tensorflow as tf
+import torch
 from datasets import load_dataset
 from transformers import TrainingArguments
 
-from pix2pix import Discriminator, Generator, Pix2PixTrainer, prepare_dataset
+from pix2pix_hf import Discriminator, Generator, Pix2PixDataset, Pix2PixTrainer
 
 
 def main():
@@ -33,14 +33,21 @@ def main():
         gradient_accumulation_steps=4,  # Helps with memory constraints
     )
 
-    # Prepare datasets
+    # Load and prepare datasets
     dataset = load_dataset("nicholasmartino/building-footprints")
-    train_dataset = dataset["train"]
-    test_dataset = dataset["test"]
 
-    # Initialize models
+    # Create Pix2PixDataset instances
+    train_dataset = Pix2PixDataset(dataset["train"]["image"], split="train")
+    test_dataset = Pix2PixDataset(dataset["test"]["image"], split="test")
+
+    # Initialize models with PyTorch
     generator = Generator()
     discriminator = Discriminator()
+
+    # Move models to GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    generator.to(device)
+    discriminator.to(device)
 
     # Create trainer
     trainer = Pix2PixTrainer(
