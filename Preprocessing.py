@@ -241,7 +241,7 @@ def export_parcels(parcel: Parcels, directory: str):
 
 
 if __name__ == "__main__":
-    data_dir = "/Users/nicholasmartino/Google Drive/My Drive/Datasets/Metro Vancouver Regional District"
+    data_dir = "gs://metro-vancouver-regional-district"
     building_source_path = f"{data_dir}/statistics_canada/building_footprints.feather"
     plot_target_dir = f"{data_dir}/processed/footprints"
 
