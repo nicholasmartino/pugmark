@@ -162,7 +162,7 @@ def plot_parcels(parcel_gdf, building_gdf, target_path):
     # Get parcels not yet plotted
     if not os.path.exists(target_path):
         os.makedirs(target_path, exist_ok=True)
-    plotted = os.listdir(target_path)
+    plotted = [i for i in os.listdir(target_path) if "png" in i]
     plotted_int = [int(i.split(".png")[0]) for i in plotted]
     not_plotted = set.difference(set(parcel_ids), set(plotted_int))
 
@@ -241,7 +241,7 @@ def export_parcels(parcel: Parcels, directory: str):
 
 
 if __name__ == "__main__":
-    data_dir = "data/Metro Vancouver Regional District"
+    data_dir = "/Users/nicholasmartino/Google Drive/My Drive/Datasets/Metro Vancouver Regional District"
     building_source_path = f"{data_dir}/statistics_canada/building_footprints.feather"
     plot_target_dir = f"{data_dir}/processed/footprints"
 

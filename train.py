@@ -1,13 +1,19 @@
 import os
 
 import torch
+from accelerate import Accelerator
 from datasets import load_dataset
 from transformers import TrainingArguments
+import shutil
+import random
 
 from pix2pix_hf import Discriminator, Generator, Pix2PixDataset, Pix2PixTrainer
 
 
 def main():
+    # Initialize accelerator
+    accelerator = Accelerator()
+
     # Configuration
     # PATH should point to the dataset on Hugging Face or mounted storage
     PATH = os.getenv(
@@ -48,6 +54,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     generator.to(device)
     discriminator.to(device)
+
+    # Prepare everything with accelerator
+    generator, discriminator, train_dataset, test_dataset = accelerator.prepare(
+        generator, discriminator, train_dataset, test_dataset
+    )
 
     # Create trainer
     trainer = Pix2PixTrainer(
