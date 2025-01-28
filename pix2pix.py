@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import os
 import time
@@ -545,13 +546,17 @@ def fit(train_ds, epochs, test_ds):
 
 
 if __name__ == "__main__":
-    """
-    This training loop saves logs you can easily view in TensorBoard to monitor the training progress.
-    Working locally you would launch a separate tensorboard process.
-    In a notebook, if you want to monitor with TensorBoard it's easiest to launch the viewer before starting training.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--job-dir", type=str, default="./")
+    args = parser.parse_args()
 
-    To launch the viewer paste the following into a code-cell:
-    """
+    # Update paths to use GCS when running in cloud
+    if args.job_dir.startswith("gs://"):
+        log_dir = os.path.join(args.job_dir, "logs")
+        checkpoint_dir = os.path.join(args.job_dir, "ckpt")
+    else:
+        log_dir = "logs"
+        checkpoint_dir = "data/ckpt"
 
     fit(dataset, EPOCHS, test_dataset)
 
