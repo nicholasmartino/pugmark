@@ -2,9 +2,12 @@ import datetime
 import os
 import time
 
+import gcsfs
 import tensorflow as tf
+from google.cloud import storage
 from IPython import display
 from matplotlib import pyplot as plt
+from tensorflow.python.lib.io import file_io
 
 print(tf.__version__)
 print(tf.config.list_physical_devices())
@@ -16,7 +19,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # path_to_zip = tf.keras.utils.get_file('facades.tar.gz', origin=_URL, extract=True)
 # PATH = os.path.join(os.path.dirname(path_to_zip), 'facades/')
 
-PATH = "data/footprints"
+# Keep the original GCS path
+SECRETS_PATH = "secrets/pugmark-448918-fc1f96c413b4.json"
+PATH = "gs://metro-vancouver-regional-district/processed/footprints"
 BUFFER_SIZE = 400
 BATCH_SIZE = 1
 IMG_WIDTH = 256
@@ -24,6 +29,16 @@ IMG_HEIGHT = 256
 CHANNELS = 3
 plot = False
 
+# Configure GCS access (choose one method below)
+# Option 1: If running locally, set credentials
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
+
+# Add this before any GCS operations
+client = storage.Client.from_service_account_json(SECRETS_PATH)
+
+# Verify bucket access
+bucket = client.get_bucket("metro-vancouver-regional-district")
+print(f"Bucket exists: {bucket.exists()}")
 
 """
 LOAD THE DATASET
@@ -54,8 +69,14 @@ def load(image_file):
     return input_image, real_image
 
 
-train_path, val_path = f"{PATH}/train", f"{PATH}/val"
-inp, re = load(f"{val_path}/{os.listdir(val_path)[0]}")
+fs = gcsfs.GCSFileSystem()
+train_files = fs.ls(os.path.join(PATH, "train"))
+test_files = fs.ls(os.path.join(PATH, "test"))
+
+# Update file listing to use full paths
+test_files = tf.io.gfile.glob(f"{PATH}/test/*.png")
+
+inp, re = load(f"{test_files[0]}")
 print(inp.shape)
 
 # Casting to int for matplotlib to show the image
@@ -146,15 +167,14 @@ def load_image_test(image_file):
 INPUT PIPELINE
 """
 
-train_dataset = tf.data.Dataset.list_files(f"{train_path}/*.png")
-train_dataset = train_dataset.map(
-    map_func=load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE
-)
-train_dataset = train_dataset.shuffle(BUFFER_SIZE)
-train_dataset = train_dataset.batch(BATCH_SIZE)
-print(train_dataset.element_spec[0])
+# Updated dataset pipeline
+dataset = tf.data.Dataset.list_files(f"{PATH}/train/*.png")
+dataset = dataset.shuffle(buffer_size=1000)
+dataset = dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
+dataset = dataset.batch(BATCH_SIZE)
+print(dataset.element_spec[0])
 
-test_dataset = tf.data.Dataset.list_files(f"{val_path}/*.png")
+test_dataset = tf.data.Dataset.list_files(f"{PATH}/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
 test_dataset = test_dataset.batch(BATCH_SIZE)
 
@@ -533,7 +553,7 @@ if __name__ == "__main__":
     To launch the viewer paste the following into a code-cell:
     """
 
-    fit(train_dataset, EPOCHS, test_dataset)
+    fit(dataset, EPOCHS, test_dataset)
 
     # restoring the latest checkpoint in checkpoint_dir
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
