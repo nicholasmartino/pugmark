@@ -7,7 +7,7 @@ Building footprint generator based on the [pix2pix](https://www.tensorflow.org/t
 gcloud auth login
 
 # Set default project
-gcloud config set project YOUR_PROJECT_ID
+gcloud config set project PROJECT_ID
 
 # Configure Docker credential helper
 gcloud auth configure-docker
@@ -17,6 +17,11 @@ gcloud services enable \
     containerregistry.googleapis.com \
     aiplatform.googleapis.com \
     cloudbuild.googleapis.com
+
+# Create Artifact Registry repository (one-time)
+gcloud artifacts repositories create $REPO_NAME \
+  --repository-format=docker \
+  --location=$REGION
 
 # Make script executableD
 chmod +x start_training.sh
