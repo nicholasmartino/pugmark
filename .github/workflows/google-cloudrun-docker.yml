@@ -33,6 +33,7 @@ on:
   push:
     branches:
       - '"master"'
+  workflow_dispatch:
 
 env:
   REGION: "us-central1"
