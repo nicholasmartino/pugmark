@@ -55,7 +55,7 @@ jobs:
       # also create credentials_file and export it to environment variables in order to use it in the next steps
       - id: "auth"
         name: "Authenticate to Google Cloud"
-        uses: "google-github-actions/auth@v0"
+        uses: "google-github-actions/auth@v2"
         with:
           token_format: "access_token"
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
