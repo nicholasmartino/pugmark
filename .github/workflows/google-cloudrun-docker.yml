@@ -67,7 +67,7 @@ jobs:
       # If you already have a container image, you can omit these steps.
       - name: "Configure Docker for GCP"
         run: |-
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
       - name: "Build and Push Container"
         run: |-

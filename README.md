@@ -22,26 +22,33 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
   --workload-identity-pool="github-actions-pool" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
-  --attribute-condition="attribute.repository == 'nicholasmartino/pugmark'" \
-  --project=${PROJECT_ID}
+  --attribute-condition="attribute.repository == '${GITHUB_REPO}'" \
+  --project=${GCP_PROJECT_ID}
 
 # Get the provider an add to repo secret
 gcloud iam workload-identity-pools providers list \
   --location="global" \
   --workload-identity-pool="github-actions-pool" \
-  --project=${PROJECT_ID}
+  --project=${GCP_PROJECT_ID}
 
-# Add permission to run cloud setup script
-chmod +x setup_gcloud.sh
+# Create GitHub Actions service account
+gcloud iam service-accounts create github-actions \
+  --display-name "GitHub Actions Service Account"
 
-./setup_gcloud.sh
+# Grant IAM Role to GitHub Actions Identity
+export PROJECT_NUMBER=$(gcloud projects describe ${GCP_PROJECT_ID} --format="value(projectNumber)")
+gcloud iam service-accounts add-iam-policy-binding \
+  github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-actions-pool/attribute.repository/${GITHUB_REPO}" \
+  --role="roles/iam.workloadIdentityUser" \
+  --project=${GCP_PROJECT_ID}
 ```
 
 ## Results
 
-![](https://raw.githubusercontent.com/nicholas-martino/pix2pix/master/footprints_gen/150epochs/fg3.png)
-![](https://raw.githubusercontent.com/nicholas-martino/pix2pix/master/footprints_gen/150epochs/fg1.png)
-![](https://raw.githubusercontent.com/nicholas-martino/pix2pix/master/footprints_gen/150epochs/fg4.png)
+![](https://raw.githubusercontent.com/nicholasmartino/pugmar/master/footprints_gen/150epochs/fg3.png)
+![](https://raw.githubusercontent.com/nicholasmartino/pugmar/master/footprints_gen/150epochs/fg1.png)
+![](https://raw.githubusercontent.com/nicholasmartino/pugmark/master/footprints_gen/150epochs/fg4.png)
 
 ## License
 
