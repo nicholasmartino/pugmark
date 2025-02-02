@@ -22,7 +22,7 @@ gcloud iam workload-identity-pools providers create-oidc "github-provider" \
   --workload-identity-pool="github-actions-pool" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
-  --attribute-condition="attribute.repository_owner=='nicholasmartino'" \
+  --attribute-condition="attribute.repository == 'nicholasmartino/pugmark'" \
   --project=${PROJECT_ID}
 
 # Get the provider an add to repo secret
