@@ -41,32 +41,13 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    container:
-      image: docker://docker:dind
-    services:
-      docker:
-        image: docker:dind
-        options: >-
-          --storage-driver overlay2
-          --storage-opt dm.basesize=30G
+    runs-on: "ubuntu-latest"
+
+    permissions:
+      contents: "read"
+      id-token: "write"
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:master
-            network=host
-          buildkitd-config: |
-            [worker.oci]
-              max-parallelism = 1
-            [worker.containerd]
-              namespace = "buildkit"
-              root = "/var/lib/buildkit"
-              gc = true
-              gckeepstorage = 30000
-
       - name: "Checkout"
         uses: "actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332" # actions/checkout@v4
 
@@ -94,11 +75,8 @@ jobs:
       - name: "Build and Push Container"
         run: |-
           DOCKER_TAG="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}"
-          docker buildx build --output=type=image,\"name=${DOCKER_TAG}\",push=true \
-            --cache-from=type=gha \
-            --cache-to=type=gha,mode=max \
-            --load \
-            -t "${DOCKER_TAG}" .
+          docker build --tag "${DOCKER_TAG}" .
+          docker push "${DOCKER_TAG}"
       # END - Docker auth and build
       - name: "Deploy to Cloud Run"
         uses: "google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17" # google-github-actions/deploy-cloudrun@v2
@@ -113,8 +91,3 @@ jobs:
         run: |2-
 
           echo ${{ steps.deploy.outputs.url }}
-
-      - name: Clean Docker cache
-        run: |
-          docker builder prune --force
-          df -h

@@ -1,18 +1,11 @@
-# Lightweight Python base
-FROM python:3.10-slim
+# Use Google's pre-built GPU image
+FROM us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-12.py310:latest
 
-# Install system dependencies only needed for build
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    gcc \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies with cleanup
+# Install Python dependencies with cache cleanup
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    find /usr/local/lib -type d -name '__pycache__' -exec rm -rf {} + && \
-    rm -rf /root/.cache
+    rm -rf /root/.cache/pip && \
+    rm -rf /tmp/*
 
 # Copy training code
 COPY train.py /train.py
