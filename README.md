@@ -63,6 +63,24 @@ gcloud artifacts repositories add-iam-policy-binding pugmark \
 gcloud artifacts repositories add-iam-policy-binding pugmark \
   --location=us-central1 \
   --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
+  --role=roles/artifactregistry.repoAdmin \
+  --project=${GCP_PROJECT_ID}
+
+gcloud artifacts repositories add-iam-policy-binding pugmark \
+  --location=us-central1 \
+  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
+  --role=roles/artifactregistry.admin \
+  --project=${GCP_PROJECT_ID}
+
+gcloud artifacts repositories add-iam-policy-binding pugmark \
+  --location=us-central1 \
+  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
+  --role=roles/artifactregistry.containerRegistryMigrationAdmin \
+  --project=${GCP_PROJECT_ID}
+
+gcloud artifacts repositories add-iam-policy-binding pugmark \
+  --location=us-central1 \
+  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
   --role=roles/artifactregistry.createOnPushWriter \
   --project=${GCP_PROJECT_ID}
 
