@@ -37,7 +37,7 @@ on:
 
 env:
   REGION: "us-central1"
-  SERVICE: "pugmark"
+  SERVICE: "nicholasmartino/pugmark"
 
 jobs:
   deploy:
