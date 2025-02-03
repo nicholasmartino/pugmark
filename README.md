@@ -65,6 +65,12 @@ gcloud artifacts repositories add-iam-policy-binding pugmark \
   --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
   --role=roles/artifactregistry.createOnPushWriter \
   --project=${GCP_PROJECT_ID}
+
+gcloud artifacts repositories add-iam-policy-binding pugmark \
+  --location=us-central1 \
+  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
+  --role=roles/artifactregistry.createOnPushRepoAdmin \
+  --project=${GCP_PROJECT_ID}
 ```
 
 ## Results
