@@ -59,6 +59,10 @@ gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
   --role="roles/iam.serviceAccountUser"
 
 # Add explicit repository permissions
+gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
+  --member="serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --role=roles/owner
+
 gcloud artifacts repositories add-iam-policy-binding pugmark \
   --location=us-central1 \
   --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
