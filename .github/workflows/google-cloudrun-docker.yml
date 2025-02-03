@@ -68,6 +68,7 @@ jobs:
         run: |-
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
           gcloud auth configure-docker global-docker.pkg.dev
+          gcloud auth configure-docker --quiet
 
       - name: "Build and Push Container"
         run: |-
