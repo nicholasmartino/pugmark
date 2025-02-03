@@ -37,7 +37,6 @@ on:
 
 env:
   REGION: "us-central1"
-  SERVICE: "pugmark"
 
 jobs:
   deploy:
@@ -72,7 +71,7 @@ jobs:
 
       - name: "Build and Push Container"
         run: |-
-          DOCKER_TAG="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/image:${{ github.sha }}"
+          DOCKER_TAG="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/image:${{ github.sha }}"
           docker build -t "${DOCKER_TAG}" .
           docker push "${DOCKER_TAG}"
       # END - Docker auth and build
