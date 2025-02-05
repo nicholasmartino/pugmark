@@ -10,32 +10,10 @@ Building footprint generator based on the [pix2pix](https://www.tensorflow.org/t
 # Authenticate with your Google account
 gcloud auth login
 
-# Create github actions pool
-gcloud iam workload-identity-pools create "github-actions-pool" \
-  --location="global" \
-  --description="GitHub Actions pool" \
-  --display-name="GitHub Actions"
+chmod +x setup_gcloud.sh
 
-# Then create the provider in the pool
-gcloud iam workload-identity-pools providers create-oidc "github-provider" \
-  --location="global" \
-  --workload-identity-pool="github-actions-pool" \
-  --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
-  --attribute-condition="attribute.repository == '${GITHUB_REPO}'" \
-  --project=${GCP_PROJECT_ID}
+./setup_gcloud.sh
 
-# Get the provider an add to repo secret
-gcloud iam workload-identity-pools providers list \
-  --location="global" \
-  --workload-identity-pool="github-actions-pool" \
-  --project=${GCP_PROJECT_ID}
-
-# Create GitHub Actions service account
-gcloud iam service-accounts create github-actions \
-  --display-name "GitHub Actions Service Account"
-
-# Grant IAM Role to GitHub Actions Identity
 export PROJECT_NUMBER=$(gcloud projects describe ${GCP_PROJECT_ID} --format="value(projectNumber)")
 gcloud iam service-accounts add-iam-policy-binding \
   github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
