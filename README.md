@@ -13,69 +13,6 @@ gcloud auth login
 chmod +x setup_gcloud.sh
 
 ./setup_gcloud.sh
-
-export PROJECT_NUMBER=$(gcloud projects describe ${GCP_PROJECT_ID} --format="value(projectNumber)")
-gcloud iam service-accounts add-iam-policy-binding \
-  github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-actions-pool/attribute.repository/${GITHUB_REPO}" \
-  --role="roles/iam.workloadIdentityUser" \
-  --project=${GCP_PROJECT_ID}
-
-# Add Cloud Build Service Account role
-gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
-  --member="serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/cloudbuild.builds.builder"
-
-# Grant Artifact Registry Writer role
-gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
-  --member="serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/artifactregistry.writer"
-
-# Grant Service Account User role
-gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
-  --member="serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountUser"
-
-# Add explicit repository permissions
-gcloud projects add-iam-policy-binding ${GCP_PROJECT_ID} \
-  --member="serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-  --role=roles/owner
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.writer \
-  --project=${GCP_PROJECT_ID}
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.repoAdmin \
-  --project=${GCP_PROJECT_ID}
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.admin \
-  --project=${GCP_PROJECT_ID}
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.containerRegistryMigrationAdmin \
-  --project=${GCP_PROJECT_ID}
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.createOnPushWriter \
-  --project=${GCP_PROJECT_ID}
-
-gcloud artifacts repositories add-iam-policy-binding pugmark \
-  --location=us-central1 \
-  --member=serviceAccount:github-actions@${GCP_PROJECT_ID}.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.createOnPushRepoAdmin \
-  --project=${GCP_PROJECT_ID}
 ```
 
 ## Results

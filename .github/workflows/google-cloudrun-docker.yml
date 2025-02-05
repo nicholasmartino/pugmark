@@ -83,32 +83,3 @@ jobs:
           tags: |
             ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:${{ steps.get-tag.outputs.short_ref }}
             ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:latest
-
-      # # BEGIN - Docker auth and build
-      # #
-      # # If you already have a container image, you can omit these steps.
-      # - name: "Configure Docker for GCP"
-      #   run: |-
-      #     gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-      #     gcloud auth configure-docker global-docker.pkg.dev
-      #     gcloud auth configure-docker --quiet
-
-      # - name: "Build and Push Container"
-      #   run: |-
-      #     DOCKER_TAG="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:${{ github.sha }}"
-      #     docker build -t "${DOCKER_TAG}" .
-      #     docker push "${DOCKER_TAG}"
-      # # END - Docker auth and build
-      # - name: "Deploy to Cloud Run"
-      #   uses: "google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17" # google-github-actions/deploy-cloudrun@v2
-      #   with:
-      #     service: "${{ env.SERVICE }}"
-      #     region: "${{ env.REGION }}"
-      #     # NOTE: If using a pre-built image, update the image name below:
-
-      #     image: "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE }}:${{ github.sha }}"
-      # # If required, use the Cloud Run URL output in later steps
-      # - name: "Show output"
-      #   run: |2-
-
-      #     echo ${{ steps.deploy.outputs.url }}
