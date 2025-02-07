@@ -56,13 +56,15 @@ jobs:
       # including authenticating via a JSON credentials file.
       - id: "auth"
         name: "Authenticate to Google Cloud"
-        uses: "google-github-actions/auth@v2" # Ensure latest version
+        uses: "google-github-actions/auth@v2.1.0"
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-          access_token_lifetime: 300s
+          access_token_lifetime: 3600s
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           token_format: "access_token"
+          access_token_scopes: |
+            https://www.googleapis.com/auth/cloud-platform
 
       - name: Login to Artifact Registry
         uses: docker/login-action@v3
@@ -83,3 +85,6 @@ jobs:
           tags: |
             ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:${{ steps.get-tag.outputs.short_ref }}
             ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:latest
+          registry: ${{ env.REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}

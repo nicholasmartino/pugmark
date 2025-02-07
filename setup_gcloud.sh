@@ -1,8 +1,14 @@
 export SERVICE_ACCOUNT="github-service-account"
 export WORKLOAD_PROVIDER="github-identity-provider"
+export PROJECT_NAME="pugmark"
 
 gcloud services enable iamcredentials.googleapis.com \
   --project "${GCP_PROJECT_ID}"
+
+gcloud artifacts repositories create "${PROJECT_NAME}" \
+  --repository-format=docker \
+  --location=us-central1 \
+  --project=${GCP_PROJECT_ID}
 
 # Create github actions pool
 gcloud iam workload-identity-pools create "github-actions-pool" \
