@@ -85,35 +85,3 @@ jobs:
           registry: ${{ env.REGION }}-docker.pkg.dev
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
-
-  run-image:
-    name: "Run Container Image"
-    runs-on: "ubuntu-latest"
-    needs: [deploy] # Requires deploy job to complete first
-    environment: production
-
-    permissions:
-      contents: "read"
-      id-token: "write"
-
-    env:
-      SERVICE_NAME: "pugmark-service"
-      IMAGE: "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/pugmark/pugmark:${{ needs.deploy.outputs.docker_tag }}"
-
-    steps:
-      - name: "Authenticate to Google Cloud"
-        uses: "google-github-actions/auth@v2.1.0"
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-          access_token_lifetime: 3600s
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-      - name: "Deploy to Cloud Run"
-        run: |-
-          gcloud run deploy $SERVICE_NAME \
-            --image $IMAGE \
-            --region $REGION \
-            --platform managed \
-            --allow-unauthenticated \
-            --project ${{ secrets.GCP_PROJECT_ID }}
