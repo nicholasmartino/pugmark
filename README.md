@@ -10,7 +10,8 @@ Building footprint generator based on the [pix2pix](https://www.tensorflow.org/t
 # Authenticate with your Google account
 gcloud auth login
 
-chmod +x setup_gcloud.sh
+chmod +x gcloud_setup.sh
+chmod +x gcloud_submit_job.sh
 
 ./setup_gcloud.sh
 ```
