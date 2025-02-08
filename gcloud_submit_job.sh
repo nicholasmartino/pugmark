@@ -10,5 +10,11 @@ gcloud run jobs create pugmark-training \
   --parallelism=1 \
   --cpu=4 \
   --memory=4G \
-  --command="/train.py" \
+  --command="python /train.py"
+
+# Execute the job immediately after creation
+gcloud run jobs execute pugmark-training \
+  --project $GCP_PROJECT_ID \
+  --region us-central1 \
+  --wait  # Optional: Wait for job completion and stream logs
   
