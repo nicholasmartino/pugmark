@@ -4,7 +4,7 @@
 gcloud run jobs delete pugmark-training \
   --project $GCP_PROJECT_ID \
   --region us-central1 \
-  --quiet  # Added to skip confirmation
+  --quiet
 
 # Submit training job
 gcloud run jobs create pugmark-training \
@@ -16,7 +16,9 @@ gcloud run jobs create pugmark-training \
   --parallelism=1 \
   --cpu=4 \
   --memory=4G \
-  --command="python3 /app/src/training/train.py"
+  --max-retries=0 \
+  --command="sh" \
+  --args="python3 /app/src/training/train.py"
 
 # Execute the job immediately after creation
 gcloud run jobs execute pugmark-training \
