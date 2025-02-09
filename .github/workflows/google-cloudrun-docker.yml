@@ -36,7 +36,7 @@ on:
       - master
     paths:
       - "Dockerfile"
-      - "training/train.py"
+      - "src/training/train.py"
 
 env:
   REGION: "us-central1"

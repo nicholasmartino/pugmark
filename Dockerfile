@@ -11,7 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /tmp/*
 
 # Copy training code
-COPY training/ ./training/
+COPY src/ ./src/
+
+# Verify copy operation
+RUN ls -lha /app/src  # Debugging line to check contents
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
