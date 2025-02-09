@@ -15,7 +15,7 @@ gcloud run jobs create pugmark-training \
   --parallelism=1 \
   --cpu=4 \
   --memory=4G \
-  --command="python /app/train.py"
+  --command="python /app/training/train.py"
 
 # Execute the job immediately after creation
 gcloud run jobs execute pugmark-training \
