@@ -27,7 +27,7 @@
 #
 # 3. Change the values in the "env" block to match your values.
 
-name: "Build and Deploy to Cloud Run"
+name: "Train on Google Cloud"
 
 on:
   workflow_dispatch:
@@ -36,6 +36,7 @@ on:
       - master
     paths:
       - "Dockerfile"
+      - "training/train.py"
 
 env:
   REGION: "us-central1"
@@ -110,9 +111,9 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Make script executable
-        run: chmod +x gcloud_submit_job.sh
+        run: chmod +x ./scripts/gcloud_submit_job.sh
 
       - name: Run training job
-        run: ./gcloud_submit_job.sh
+        run: ./scripts/gcloud_submit_job.sh
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
