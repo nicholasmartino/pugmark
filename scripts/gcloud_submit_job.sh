@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Delete job if exists
+# Delete job if exists (non-interactive)
 gcloud run jobs delete pugmark-training \
   --project $GCP_PROJECT_ID \
-  --region us-central1
+  --region us-central1 \
+  --quiet  # Added to skip confirmation
 
 # Submit training job
 gcloud run jobs create pugmark-training \
@@ -21,4 +22,4 @@ gcloud run jobs create pugmark-training \
 gcloud run jobs execute pugmark-training \
   --project $GCP_PROJECT_ID \
   --region us-central1 \
-  --wait  # Optional: Wait for job completion and stream logs
+  --wait

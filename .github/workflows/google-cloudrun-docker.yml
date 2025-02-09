@@ -109,6 +109,10 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
           project_id: ${{ secrets.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          token_format: "access_token"
+          access_token_lifetime: "300s"
+          access_token_scopes: "https://www.googleapis.com/auth/cloud-platform"
 
       - name: Make script executable
         run: chmod +x ./scripts/gcloud_submit_job.sh
