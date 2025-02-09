@@ -62,6 +62,11 @@ gcloud iam service-accounts add-iam-policy-binding "${SERVICE_ACCOUNT}@${GCP_PRO
   --role="roles/run.developer" \
   --member="principalSet://iam.googleapis.com/${WORKLOAD_IDENTITY_POOL_ID}/attribute.repository/${GITHUB_REPO}"
 
+gcloud iam service-accounts add-iam-policy-binding "${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --project="${GCP_PROJECT_ID}" \
+  --role="roles/run.admin" \
+  --member="principalSet://iam.googleapis.com/${WORKLOAD_IDENTITY_POOL_ID}/attribute.repository/${GITHUB_REPO}"
+
 gcloud iam workload-identity-pools providers describe "${WORKLOAD_PROVIDER}" \
   --project="${GCP_PROJECT_ID}" \
   --location="global" \
