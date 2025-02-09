@@ -103,16 +103,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Google Cloud auth
-        uses: google-github-actions/auth@v2.1.0
+      # Configure Workload Identity Federation and generate an access token.
+      #
+      # See https://github.com/google-github-actions/auth for more options,
+      # including authenticating via a JSON credentials file.
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
+        uses: "google-github-actions/auth@v2.1.0"
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          access_token_lifetime: 3600s
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          create_credentials_file: true
           token_format: "access_token"
-          access_token_lifetime: "300s"
-          access_token_scopes: "https://www.googleapis.com/auth/cloud-platform"
+          access_token_scopes: |
+            https://www.googleapis.com/auth/cloud-platform
 
       - name: Make script executable
         run: chmod +x ./scripts/gcloud_submit_job.sh
