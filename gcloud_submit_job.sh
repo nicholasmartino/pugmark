@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Delete job if exists
+gcloud run jobs delete pugmark-training \
+  --project $GCP_PROJECT_ID \
+  --region us-central1
+
 # Submit training job
 gcloud run jobs create pugmark-training \
   --image us-central1-docker.pkg.dev/$GCP_PROJECT_ID/pugmark/pugmark:latest \
@@ -10,11 +15,10 @@ gcloud run jobs create pugmark-training \
   --parallelism=1 \
   --cpu=4 \
   --memory=4G \
-  --command="python /train.py"
+  --command="python /app/train.py"
 
 # Execute the job immediately after creation
 gcloud run jobs execute pugmark-training \
   --project $GCP_PROJECT_ID \
   --region us-central1 \
   --wait  # Optional: Wait for job completion and stream logs
-  
