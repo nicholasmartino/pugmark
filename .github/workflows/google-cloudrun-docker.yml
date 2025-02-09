@@ -27,7 +27,7 @@
 #
 # 3. Change the values in the "env" block to match your values.
 
-name: "Train on Google Cloud"
+name: "Google Cloud Docker Run"
 
 on:
   workflow_dispatch:
