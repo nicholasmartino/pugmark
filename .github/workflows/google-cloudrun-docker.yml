@@ -27,7 +27,7 @@
 #
 # 3. Change the values in the "env" block to match your values.
 
-name: "Google Cloud Docker Run"
+name: "Deploy and Execute Training Pipeline"
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ env:
   REGION: "us-central1"
 
 jobs:
-  Build:
+  Deploy:
     runs-on: "ubuntu-latest"
 
     permissions:
@@ -92,8 +92,8 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
-  Run:
-    needs: Build
+  Execute:
+    needs: Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
