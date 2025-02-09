@@ -16,6 +16,3 @@ COPY training/ ./training/
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD python -c "import os; exit(0 if os.path.exists('/tmp/healthy') else 1)"
-
-# Entrypoint for Vertex AI
-ENTRYPOINT ["python3", "training/train.py"]
