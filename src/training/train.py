@@ -9,8 +9,9 @@ from Discriminator import Discriminator, discriminator_loss
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
 from google.cloud import storage
-from Helpers import load, normalize, random_crop, resize
+from Helpers import load, random_jitter
 from IPython import display
+from Loader import load_image_test, load_image_train
 from matplotlib import pyplot as plt
 from Sampler import downsample, upsample
 
@@ -53,24 +54,6 @@ if PLOT:
     plt.imshow(re / 255.0)
 
 
-@tf.function()
-def random_jitter(input_image, real_image):
-    # resizing to 286 x 286 x 3
-    input_image, real_image = resize(
-        input_image, real_image, int(IMG_WIDTH * 1.12), int(IMG_HEIGHT * 1.12)
-    )
-
-    # randomly cropping to 256 x 256 x 3
-    input_image, real_image = random_crop(input_image, real_image)
-
-    if tf.random.uniform(()).value_index > 0.5:
-        # random mirroring
-        input_image = tf.image.flip_left_right(input_image)
-        real_image = tf.image.flip_left_right(real_image)
-
-    return input_image, real_image
-
-
 # The images below are going through random jittering to
 # 1. Resize an image to bigger height and width
 # 2. Randomly crop to the target size
@@ -87,21 +70,6 @@ for i in range(4):
         plt.axis("off")
 if PLOT:
     plt.show()
-
-
-def load_image_train(image_file):
-    input_image, real_image = load(image_file)
-    input_image, real_image = random_jitter(input_image, real_image)
-    input_image, real_image = normalize(input_image, real_image)
-    return input_image, real_image
-
-
-def load_image_test(image_file):
-    input_image, real_image = load(image_file)
-    input_image, real_image = resize(input_image, real_image, IMG_HEIGHT, IMG_WIDTH)
-    input_image, real_image = normalize(input_image, real_image)
-
-    return input_image, real_image
 
 
 """

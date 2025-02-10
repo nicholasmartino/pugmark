@@ -1,5 +1,5 @@
 import tensorflow as tf
-from Globals import CHANNELS, IMG_HEIGHT, IMG_WIDTH
+from Globals import IMG_HEIGHT, IMG_WIDTH
 
 
 def resize(input_image, real_image, height, width):
@@ -27,30 +27,19 @@ def normalize(input_image, real_image):
     return input_image, real_image
 
 
-"""
-LOAD THE DATASET
+@tf.function()
+def random_jitter(input_image, real_image):
+    # resizing to 286 x 286 x 3
+    input_image, real_image = resize(
+        input_image, real_image, int(IMG_WIDTH * 1.12), int(IMG_HEIGHT * 1.12)
+    )
 
-In random jittering, the image is resized to 286 x 286 and then randomly cropped to 256 x 256
-In random mirroring, the image is randomly flipped horizontally i.e left to right.
-"""
+    # randomly cropping to 256 x 256 x 3
+    input_image, real_image = random_crop(input_image, real_image)
 
-
-def load(image_file):
-    image = tf.io.read_file(image_file)
-
-    # Only for jpeg
-    # image = tf.image.decode_jpeg(image)
-
-    # Custom edit for png
-    image = tf.io.decode_png(image, channels=CHANNELS)
-
-    w = tf.shape(image)[1]
-
-    w = w // 2
-    real_image = image[:, :w, :]
-    input_image = image[:, w:, :]
-
-    input_image = tf.cast(input_image, tf.float32)
-    real_image = tf.cast(real_image, tf.float32)
+    if tf.random.uniform(()).value_index > 0.5:
+        # random mirroring
+        input_image = tf.image.flip_left_right(input_image)
+        real_image = tf.image.flip_left_right(real_image)
 
     return input_image, real_image
