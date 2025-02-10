@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /tmp/*
 
 # Copy training code
-COPY src/ ./src/
+COPY src/training/* ./src/training/
 
 # Verify copy operation
 RUN ls -lha /app/src  # Debugging line to check contents
