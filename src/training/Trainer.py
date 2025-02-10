@@ -84,11 +84,9 @@ test_dataset = tf.data.Dataset.list_files(f"{PATH}/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
 test_dataset = test_dataset.batch(BATCH_SIZE)
 
-
 down_model = downsample(3, 4)
 down_result = down_model(tf.expand_dims(inp, 0))
 print(down_result.shape)
-
 
 up_model = upsample(3, 4)
 up_result = up_model(down_result)
@@ -110,8 +108,6 @@ if PLOT:
 # gan_loss + LAMBDA * l1_loss, where LAMBDA = 100. This value was decided by the authors of the paper.
 
 # Training procedure for the generator
-
-LAMBDA = 100
 
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
