@@ -15,9 +15,6 @@ from Loader import load_image_test, load_image_train
 from matplotlib import pyplot as plt
 from Sampler import downsample, upsample
 
-print(tf.__version__)
-print(tf.config.list_physical_devices())
-
 start_time = datetime.datetime.now()
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
