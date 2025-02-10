@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directory and copy files
-RUN mkdir -p /app/src/training
 COPY src/training/* /app/src/training/
 
 # Verify copy operation
