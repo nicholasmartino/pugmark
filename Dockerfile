@@ -1,5 +1,5 @@
 # Use Google's pre-built GPU image
-FROM us-docker.pkg.dev/vertex-ai/training/tf-cpu.2-12.py310:latest
+FROM us-docker.pkg.dev/vertex-ai/training/tf-gpu.2-12.py310:latest
 
 # Set working directory
 WORKDIR /app
