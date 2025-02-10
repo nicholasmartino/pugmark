@@ -10,11 +10,12 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /root/.cache/pip && \
     rm -rf /tmp/*
 
-# Copy training code
-COPY src/training/* ./src/training/
+# Create directory first
+RUN mkdir -p /app/src/training
+COPY src/training/* /app/src/training/
 
 # Verify copy operation
-RUN ls -lha /app/src  # Debugging line to check contents
+RUN ls -lha /app/src/training/  # Changed to show contents of training directory
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
