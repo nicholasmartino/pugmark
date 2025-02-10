@@ -9,9 +9,9 @@ from Discriminator import Discriminator, discriminator_loss
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
 from google.cloud import storage
-from Helpers import load, random_jitter
+from Helpers import random_jitter
 from IPython import display
-from Loader import load_image_test, load_image_train
+from Loader import load, load_image_test, load_image_train
 from matplotlib import pyplot as plt
 from Sampler import downsample, upsample
 

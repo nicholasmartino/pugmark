@@ -1,6 +1,6 @@
 import tensorflow as tf
 from Globals import *
-from Helpers import load, normalize, random_jitter, resize
+from Helpers import normalize, random_jitter, resize
 
 """
 LOAD THE DATASET
