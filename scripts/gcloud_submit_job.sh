@@ -17,8 +17,8 @@ gcloud run jobs create pugmark-training \
   --cpu=4 \
   --memory=4G \
   --max-retries=0 \
-  --command="sh" \
-  --args="python3 /app/src/training/train.py"
+  --command="python3" \
+  --args="/app/src/training/train.py"
 
 # Execute the job immediately after creation
 gcloud run jobs execute pugmark-training \
