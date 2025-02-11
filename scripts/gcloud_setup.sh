@@ -1,7 +1,14 @@
 export SERVICE_ACCOUNT="github-service-account"
 export WORKLOAD_PROVIDER="github-identity-provider"
 export PROJECT_NAME="pugmark"
-export SECRET_NAME="pugmark-secret"
+
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(cat .env | grep -v '#' | xargs)
+else
+    echo ".env file not found"
+    exit 1
+fi
 
 gcloud services enable iamcredentials.googleapis.com \
   --project "${GCP_PROJECT_ID}"
@@ -126,10 +133,10 @@ gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
 ###
 
 # First, create the secret in Secret Manager
-gcloud secrets create "${SECRET_NAME}" \
+gcloud secrets create "${GCP_SECRET_NAME}" \
     --project="${GCP_PROJECT_ID}"
 
 # Then, add the service account key JSON as the secret value
-gcloud secrets versions add "${SECRET_NAME}" \
+gcloud secrets versions add "${GCP_SECRET_NAME}" \
     --project="${GCP_PROJECT_ID}" \
     --data-file="${GCP_SECRET_PATH}"

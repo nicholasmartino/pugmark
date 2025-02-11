@@ -1,7 +1,6 @@
 import os
 
 from dotenv import load_dotenv
-from Globals import SECRETS_PATH
 from google.cloud import secretmanager, storage
 
 
@@ -11,7 +10,7 @@ def get_cloud_credentials():
         # Load environment variables
         load_dotenv()
         project_id = os.getenv("GCP_PROJECT_ID")
-        secret_name = os.getenv("GCP_SECRET_NAME", "pugmark-service-account")
+        secret_name = os.getenv("GCP_SECRET_NAME")
 
         # Create the Secret Manager client
         client = secretmanager.SecretManagerServiceClient()
@@ -30,18 +29,17 @@ def get_cloud_credentials():
 
 
 def get_local_credentials():
-    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
     # _URL = 'https://people.eecs.berkeley.edu/~tinghuiz/projects/pix2pix/datasets/facades.tar.gz'
     # path_to_zip = tf.keras.utils.get_file('facades.tar.gz', origin=_URL, extract=True)
     # PATH = os.path.join(os.path.dirname(path_to_zip), 'facades/')
 
     # Configure GCS access (choose one method below)
     # Option 1: If running locally, set credentials
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
+    secret_path = os.getenv("GCP_SECRET_PATH")
 
     # Add this before any GCS operations
-    client = storage.Client.from_service_account_json(SECRETS_PATH)
+    load_dotenv()
+    client = storage.Client.from_service_account_json(secret_path)
 
     # Verify bucket access
     bucket = client.get_bucket("metro-vancouver-regional-district")
