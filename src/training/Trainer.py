@@ -5,7 +5,7 @@ import time
 
 import gcsfs
 import tensorflow as tf
-from AuthUtils import get_cloud_credentials, get_local_credentials
+from AuthUtils import auth_client_from_cloud, auth_client_locally
 from Discriminator import Discriminator, discriminator_loss
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
@@ -20,11 +20,14 @@ start_time = datetime.datetime.now()
 # Check if running in Google Cloud environment
 if os.getenv("K_SERVICE"):  # This environment variable is present in Cloud Run
     print("Running in Google Cloud environment")
-    get_cloud_credentials()
+    client = auth_client_from_cloud()
 else:
     print("Running locally")
-    get_local_credentials()
+    client = auth_client_locally()
 
+# Verify bucket access
+bucket = client.get_bucket("metro-vancouver-regional-district")
+print(f"Bucket exists: {bucket.exists()}")
 
 fs = gcsfs.GCSFileSystem()
 train_files = fs.ls(os.path.join(PATH, "train"))

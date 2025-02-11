@@ -2,8 +2,10 @@
     "cSpell.words": [
         "accesstoken",
         "artifactregistry",
+        "dotenv",
         "hostedtoolcache",
         "iamcredentials",
-        "pugmark"
+        "pugmark",
+        "secretmanager"
     ]
 }
