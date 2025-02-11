@@ -1,29 +1,22 @@
 import os
 
 from dotenv import load_dotenv
-from google.cloud import secretmanager, storage
+from google.cloud import storage
 
 
 def auth_client_from_cloud():
-    """Retrieve credentials from Secret Manager and access GCS bucket."""
+    """Get storage client when running in Google Cloud environment."""
     try:
         # Load environment variables
         load_dotenv()
         project_id = os.getenv("GCP_PROJECT_ID")
-        secret_name = os.getenv("GCP_SECRET_NAME")
 
-        # Create the Secret Manager client
-        secret_manager = secretmanager.SecretManagerServiceClient()
+        print(f"Creating storage client for project {project_id}")
 
-        # Build the resource name
-        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-
-        # Access the secret
-        response = secret_manager.access_secret_version(request={"name": name})
-
-        return storage.Client(credentials=response.payload.data.decode("UTF-8"))
+        # When running on Cloud Run, use default credentials
+        return storage.Client(project=project_id)
     except Exception as e:
-        print(f"Error accessing secret or bucket: {e}")
+        print(f"Error creating storage client: {e}")
         raise
 
 
