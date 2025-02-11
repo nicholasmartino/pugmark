@@ -123,7 +123,7 @@ jobs:
         uses: "google-github-actions/auth@v2.1.0"
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}t@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+          service_account: ${{ env.SERVICE_ACCOUNT }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
           access_token_lifetime: 3600s
           project_id: ${{ env.PROJECT_ID }}
           token_format: "access_token"
