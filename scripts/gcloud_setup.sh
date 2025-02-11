@@ -1,14 +1,23 @@
 export SERVICE_ACCOUNT="github-service-account"
 export WORKLOAD_PROVIDER="github-identity-provider"
 export PROJECT_NAME="pugmark"
+export SECRET_NAME="pugmark-secret"
 
 gcloud services enable iamcredentials.googleapis.com \
   --project "${GCP_PROJECT_ID}"
+
+gcloud services enable secretmanager.googleapis.com \
+    --project "${GCP_PROJECT_ID}"
 
 gcloud artifacts repositories create "${PROJECT_NAME}" \
   --repository-format=docker \
   --location=us-central1 \
   --project=${GCP_PROJECT_ID}
+
+
+### 
+# IDENTITY PROVIDER & SERVICE ACCOUNT
+###
 
 # Create github actions pool
 gcloud iam workload-identity-pools create "github-actions-pool" \
@@ -32,14 +41,14 @@ gcloud iam workload-identity-pools providers list \
   --workload-identity-pool="github-actions-pool" \
   --project=${GCP_PROJECT_ID}
 
-# Create GitHub Actions service account
-gcloud iam service-accounts create "${SERVICE_ACCOUNT}" \
-  --display-name "GitHub Actions Service Account"
-
 export WORKLOAD_IDENTITY_POOL_ID=$(gcloud iam workload-identity-pools describe "github-actions-pool" \
   --project="${GCP_PROJECT_ID}" \
   --location="global" \
   --format="value(name)")
+
+# Create GitHub Actions service account
+gcloud iam service-accounts create "${SERVICE_ACCOUNT}" \
+  --display-name "GitHub Actions Service Account"
 
 # Grant IAM Role to GitHub Actions Identity
 gcloud iam service-accounts add-iam-policy-binding "${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
@@ -73,6 +82,11 @@ gcloud iam workload-identity-pools providers describe "${WORKLOAD_PROVIDER}" \
   --workload-identity-pool="github-actions-pool" \
   --format="value(name)"
 
+
+###
+# PROJECTS
+###
+
 gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
     --member="serviceAccount:${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
     --role="roles/artifactregistry.admin"
@@ -105,3 +119,17 @@ gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
   --member="principalSet://iam.googleapis.com/${WORKLOAD_IDENTITY_POOL_ID}/attribute.repository/${GITHUB_REPO}" \
   --role="roles/run.invoker"
+
+
+###
+# SECRETS
+###
+
+# First, create the secret in Secret Manager
+gcloud secrets create "${SECRET_NAME}" \
+    --project="${GCP_PROJECT_ID}"
+
+# Then, add the service account key JSON as the secret value
+gcloud secrets versions add "${SECRET_NAME}" \
+    --project="${GCP_PROJECT_ID}" \
+    --data-file="${GCP_SECRET_PATH}"

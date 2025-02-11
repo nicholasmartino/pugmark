@@ -1,5 +1,6 @@
 import os
 
+from dotenv import load_dotenv
 from Globals import SECRETS_PATH
 from google.cloud import secretmanager, storage
 
@@ -7,13 +8,16 @@ from google.cloud import secretmanager, storage
 def get_cloud_credentials():
     """Retrieve credentials from Secret Manager."""
     try:
+        # Load environment variables
+        load_dotenv()
+        project_id = os.getenv("GCP_PROJECT_ID")
+        secret_name = os.getenv("GCP_SECRET_NAME", "pugmark-service-account")
+
         # Create the Secret Manager client
         client = secretmanager.SecretManagerServiceClient()
 
         # Build the resource name
-        name = (
-            f"projects/pugmark-448918/secrets/pugmark-service-account/versions/latest"
-        )
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
 
         # Access the secret
         response = client.access_secret_version(request={"name": name})
