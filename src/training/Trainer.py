@@ -5,10 +5,10 @@ import time
 
 import gcsfs
 import tensorflow as tf
+from AuthUtils import get_cloud_credentials, get_local_credentials
 from Discriminator import Discriminator, discriminator_loss
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
-from google.cloud import storage
 from Helpers import random_jitter
 from IPython import display
 from Loader import load, load_image_test, load_image_train
@@ -16,22 +16,15 @@ from matplotlib import pyplot as plt
 from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# _URL = 'https://people.eecs.berkeley.edu/~tinghuiz/projects/pix2pix/datasets/facades.tar.gz'
-# path_to_zip = tf.keras.utils.get_file('facades.tar.gz', origin=_URL, extract=True)
-# PATH = os.path.join(os.path.dirname(path_to_zip), 'facades/')
+# Check if running in Google Cloud environment
+if os.getenv("K_SERVICE"):  # This environment variable is present in Cloud Run
+    print("Running in Google Cloud environment")
+    get_cloud_credentials()
+else:
+    print("Running locally")
+    get_local_credentials()
 
-# Configure GCS access (choose one method below)
-# Option 1: If running locally, set credentials
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
-
-# Add this before any GCS operations
-client = storage.Client.from_service_account_json(SECRETS_PATH)
-
-# Verify bucket access
-bucket = client.get_bucket("metro-vancouver-regional-district")
-print(f"Bucket exists: {bucket.exists()}")
 
 fs = gcsfs.GCSFileSystem()
 train_files = fs.ls(os.path.join(PATH, "train"))
