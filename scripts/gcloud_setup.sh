@@ -1,6 +1,7 @@
-export SERVICE_ACCOUNT="github-service-account"
-export WORKLOAD_PROVIDER="github-identity-provider"
 export PROJECT_NAME="pugmark"
+export SERVICE_ACCOUNT="github-service-account"
+export STORAGE_BUCKET="gs://metro-vancouver-regional-district"
+export WORKLOAD_PROVIDER="github-identity-provider"
 
 # Load environment variables from .env file
 if [ -f .env ]; then
@@ -126,6 +127,16 @@ gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
   --member="principalSet://iam.googleapis.com/${WORKLOAD_IDENTITY_POOL_ID}/attribute.repository/${GITHUB_REPO}" \
   --role="roles/run.invoker"
+
+# Grant Storage Admin role to your service account
+gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
+  --member="serviceAccount:${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/storage.admin"
+
+# If you want more granular permissions, use:
+gcloud storage buckets add-iam-policy-binding "${STORAGE_BUCKET}" \
+  --member="serviceAccount:${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
 
 
 ###
