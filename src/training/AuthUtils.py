@@ -7,10 +7,7 @@ from google.cloud import storage
 def auth_client_from_cloud():
     """Get storage client when running in Google Cloud environment."""
     try:
-        # Load environment variables
-        load_dotenv()
-        project_id = os.getenv("GCP_PROJECT_ID")
-
+        project_id = "pugmark-448918"
         print(f"Creating storage client for project {project_id}")
 
         # When running on Cloud Run, use default credentials

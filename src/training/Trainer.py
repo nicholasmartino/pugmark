@@ -18,6 +18,9 @@ from Sampler import downsample, upsample
 start_time = datetime.datetime.now()
 
 # Check if running in Google Cloud environment
+print("All environment variables:")
+for k, v in os.environ.items():
+    print(f"{k}: {v}")
 if os.getenv("K_SERVICE"):  # This environment variable is present in Cloud Run
     print("Running in Google Cloud environment")
     client = auth_client_from_cloud()
