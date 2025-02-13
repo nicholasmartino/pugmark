@@ -1,4 +1,3 @@
-import argparse
 import datetime
 import os
 import time
@@ -9,10 +8,8 @@ from AuthUtils import auth_client_from_cloud, auth_client_locally
 from Discriminator import Discriminator, discriminator_loss
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
-from Helpers import random_jitter
 from IPython import display
 from Loader import load, load_image_test, load_image_train
-from matplotlib import pyplot as plt
 from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
@@ -28,22 +25,27 @@ else:
 bucket = client.get_bucket("metro-vancouver-regional-district")
 print(f"Bucket exists: {bucket.exists()}")
 
+# Update paths to use GCS when running in cloud
+log_dir = tf.io.gfile.join(PATH, "footprints/logs")
+checkpoint_dir = tf.io.gfile.join(PATH, "footprints/checkpoint")
+
+# Ensure log directory exists
+tf.io.gfile.makedirs(log_dir)
+
+# Initialize summary writer with GCS-compatible path
+global summary_writer
+summary_writer = tf.summary.create_file_writer(
+    tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+)
+
 fs = gcsfs.GCSFileSystem()
-train_files = fs.ls(os.path.join(PATH, "train"))
-test_files = fs.ls(os.path.join(PATH, "test"))
+train_files = fs.ls(os.path.join(PATH, "footprints/train"))
+test_files = fs.ls(os.path.join(PATH, "footprints/test"))
 
 # Update file listing to use full paths
-test_files = tf.io.gfile.glob(f"{PATH}/test/*.png")
-
-inp, re = load(f"{test_files[0]}")
-print(inp.shape)
-
-# Casting to int for matplotlib to show the image
-if PLOT:
-    plt.figure()
-    plt.imshow(inp / 255.0)
-    plt.figure()
-    plt.imshow(re / 255.0)
+test_files = tf.io.gfile.glob(f"{PATH}/footprints/test/*.png")
+input_image, real_image = load(f"{test_files[0]}")
+print(input_image.shape)
 
 
 # The images below are going through random jittering to
@@ -52,16 +54,16 @@ if PLOT:
 # 3. Randomly flip the image horizontally
 
 
-if PLOT:
-    plt.figure(figsize=(6, 6))
-for i in range(4):
-    rj_inp, rj_re = random_jitter(inp, re)
-    if PLOT:
-        plt.subplot(2, 2, i + 1)
-        plt.imshow(rj_inp / 255.0)
-        plt.axis("off")
-if PLOT:
-    plt.show()
+# if PLOT:
+#     plt.figure(figsize=(6, 6))
+# for i in range(4):
+#     rj_inp, rj_re = random_jitter(inp, re)
+#     if PLOT:
+#         plt.subplot(2, 2, i + 1)
+#         plt.imshow(rj_inp / 255.0)
+#         plt.axis("off")
+# if PLOT:
+#     plt.show()
 
 
 """
@@ -69,18 +71,19 @@ INPUT PIPELINE
 """
 
 # Updated dataset pipeline
-dataset = tf.data.Dataset.list_files(f"{PATH}/train/*.png")
-dataset = dataset.shuffle(buffer_size=1000)
-dataset = dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
-dataset = dataset.batch(BATCH_SIZE)
-print(dataset.element_spec[0])
+train_dataset = tf.data.Dataset.list_files(f"{PATH}/train/*.png")
+train_dataset = train_dataset.shuffle(buffer_size=1000)
+train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
+train_dataset = train_dataset.batch(BATCH_SIZE)
+train_dataset = train_dataset.repeat()
+print(train_dataset.element_spec[0])
 
 test_dataset = tf.data.Dataset.list_files(f"{PATH}/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
 test_dataset = test_dataset.batch(BATCH_SIZE)
 
 down_model = downsample(3, 4)
-down_result = down_model(tf.expand_dims(inp, 0))
+down_result = down_model(tf.expand_dims(input_image, 0))
 print(down_result.shape)
 
 up_model = upsample(3, 4)
@@ -90,9 +93,9 @@ print(up_result.shape)
 generator = Generator()
 tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
-gen_output = generator(inp[tf.newaxis, ...], training=False)
-if PLOT:
-    plt.imshow(gen_output[0, ...])
+generated = generator(input_image[tf.newaxis, ...], training=False)
+# Generated image can be plotted with matplotlib
+# plt.imshow(generated[0, ...])
 
 
 # Generator loss
@@ -110,19 +113,13 @@ loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 discriminator = Discriminator()
 tf.keras.utils.plot_model(discriminator, show_shapes=True, dpi=64)
 
-disc_out = discriminator([inp[tf.newaxis, ...], gen_output], training=False)
-if PLOT:
-    plt.imshow(disc_out[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
+discriminated = discriminator([input_image[tf.newaxis, ...], generated], training=False)
+# Discriminated image can be plotted with matplotlib
+# plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
 
 
 for example_input, example_target in test_dataset.take(1):
     generate_images(generator, example_input, example_target)
-
-
-log_dir = "logs/"
-summary_writer = tf.summary.create_file_writer(
-    log_dir + "fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-)
 
 
 """
@@ -132,8 +129,6 @@ DEFINE THE OPTIMIZERS AND CHECKPOINT-SAVER
 generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
-checkpoint_dir = "data/ckpt"
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
     discriminator_optimizer=discriminator_optimizer,
@@ -199,23 +194,31 @@ The actual training loop:
 """
 
 
-def fit(train_ds, epochs, test_ds):
+def fit(
+    train_dataset,
+    test_dataset,
+    generator,
+    checkpoint,
+    checkpoint_directory,
+    epochs,
+):
+    checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
+
     for epoch in range(epochs):
         start = time.time()
 
         display.clear_output(wait=True)
 
-        for ex_input, ex_target in test_ds.take(1):
+        for ex_input, ex_target in test_dataset.take(1):
             generate_images(generator, ex_input, ex_target)
         print("Epoch: ", epoch)
 
         # Train
-        for n, (input_image, target) in train_ds.enumerate():
+        for n, (input_image, target) in train_dataset.enumerate():
             print(".", end="")
             if (n + 1) % 100 == 0:
                 print()
             train_step(input_image, target, epoch)
-        print()
 
         # saving (checkpoint) the model every 20 epochs
         if (epoch + 1) % 20 == 0:
@@ -228,19 +231,7 @@ def fit(train_ds, epochs, test_ds):
 
 
 def train():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--job-dir", type=str, default="./")
-    args = parser.parse_args()
-
-    # Update paths to use GCS when running in cloud
-    if args.job_dir.startswith("gs://"):
-        log_dir = os.path.join(args.job_dir, "logs")
-        checkpoint_dir = os.path.join(args.job_dir, "ckpt")
-    else:
-        log_dir = "logs"
-        checkpoint_dir = "data/ckpt"
-
-    fit(dataset, EPOCHS, test_dataset)
+    fit(train_dataset, test_dataset, generator, checkpoint, checkpoint_dir, EPOCHS)
 
     # restoring the latest checkpoint in checkpoint_dir
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
