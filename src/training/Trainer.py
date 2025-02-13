@@ -47,12 +47,6 @@ test_files = tf.io.gfile.glob(f"{PATH}/footprints/test/*.png")
 input_image, real_image = load(f"{test_files[0]}")
 print(input_image.shape)
 
-# After loading train_files
-train_files = fs.ls(os.path.join(PATH, "footprints/train"))
-num_train_examples = len(train_files)
-steps_per_epoch = num_train_examples // BATCH_SIZE
-print(steps_per_epoch)
-
 
 # The images below are going through random jittering to
 # 1. Resize an image to bigger height and width
@@ -219,8 +213,8 @@ def fit(
             generate_images(generator, ex_input, ex_target)
         print("Epoch: ", epoch)
 
-        # Modified training loop with steps_per_epoch
-        for n, (input_image, target) in train_dataset.take(steps_per_epoch).enumerate():
+        # Train
+        for n, (input_image, target) in train_dataset.enumerate():
             print(".", end="")
             if (n + 1) % 100 == 0:
                 print()
