@@ -5,7 +5,7 @@ import time
 import gcsfs
 import tensorflow as tf
 from AuthUtils import auth_client_from_cloud, auth_client_locally
-from Discriminator import Discriminator, discriminator_loss
+from Discriminator import Discriminator
 from Generator import Generator, generate_images, generator_loss
 from Globals import *
 from IPython import display
@@ -151,23 +151,23 @@ and apply those to the optimizer.
 @tf.function
 def train_step(input_image, target, epoch):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        gen_output = generator(input_image, training=True)
+        generated = generator(input_image, training=True)
 
-        disc_real_output = discriminator([input_image, target], training=True)
-        disc_generated_output = discriminator([input_image, gen_output], training=True)
+        target_score = discriminator([input_image, target], training=True)
+        generated_score = discriminator([input_image, generated], training=True)
 
-        gen_total_loss, gen_gan_loss, gen_l1_loss = generator_loss(
-            disc_generated_output, gen_output, target, loss_object
+        generator_total_loss, generator_gan_loss, generator_l1_loss = generator_loss(
+            generated_score, generated, target, loss_object
         )
-        disc_loss = discriminator_loss(
-            disc_real_output, disc_generated_output, loss_object
+        discriminator_loss = discriminator_loss(
+            target_score, generated_score, loss_object
         )
 
     generator_gradients = gen_tape.gradient(
-        gen_total_loss, generator.trainable_variables
+        generator_total_loss, generator.trainable_variables
     )
     discriminator_gradients = disc_tape.gradient(
-        disc_loss, discriminator.trainable_variables
+        discriminator_loss, discriminator.trainable_variables
     )
 
     generator_optimizer.apply_gradients(
@@ -178,10 +178,10 @@ def train_step(input_image, target, epoch):
     )
 
     with summary_writer.as_default():
-        tf.summary.scalar("gen_total_loss", gen_total_loss, step=epoch)
-        tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=epoch)
-        tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=epoch)
-        tf.summary.scalar("disc_loss", disc_loss, step=epoch)
+        tf.summary.scalar("gen_total_loss", generator_total_loss, step=epoch)
+        tf.summary.scalar("gen_gan_loss", generator_gan_loss, step=epoch)
+        tf.summary.scalar("gen_l1_loss", generator_l1_loss, step=epoch)
+        tf.summary.scalar("disc_loss", discriminator_loss, step=epoch)
 
 
 """
