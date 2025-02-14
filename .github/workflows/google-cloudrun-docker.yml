@@ -43,6 +43,7 @@ env:
   SERVICE_ACCOUNT: "github-service-account"
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  TIMEOUT: "7200s"
 
 jobs:
   Deploy:
@@ -66,7 +67,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.SERVICE_ACCOUNT }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-          access_token_lifetime: 3600s
+          access_token_lifetime: ${{ env.TIMEOUT }}
           project_id: ${{ env.PROJECT_ID }}
           token_format: "access_token"
           access_token_scopes: |
@@ -124,7 +125,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.SERVICE_ACCOUNT }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-          access_token_lifetime: 3600s
+          access_token_lifetime: ${{ env.TIMEOUT }}
           project_id: ${{ env.PROJECT_ID }}
           token_format: "access_token"
           access_token_scopes: |
