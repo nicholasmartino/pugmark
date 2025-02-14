@@ -99,7 +99,7 @@ gcloud projects add-iam-policy-binding $GCP_PROJECT_ID \
     --member="serviceAccount:${SERVICE_ACCOUNT}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
     --role="roles/artifactregistry.admin"
 
-# Check it wokred
+# Check it worked
 gcloud projects get-iam-policy $GCP_PROJECT_ID \
     --flatten="bindings[].members" \
     --format='table(bindings.role)' \
