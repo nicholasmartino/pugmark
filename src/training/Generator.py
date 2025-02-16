@@ -67,7 +67,7 @@ def Generator():
     return tf.keras.Model(inputs=inputs, outputs=x)
 
 
-def generator_loss(disc_generated_output, gen_output, target, loss_object):
+def calculate_generator_loss(disc_generated_output, gen_output, target, loss_object):
     gan_loss = loss_object(tf.ones_like(disc_generated_output), disc_generated_output)
 
     # mean absolute error

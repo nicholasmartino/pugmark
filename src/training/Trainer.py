@@ -5,8 +5,8 @@ import time
 import gcsfs
 import tensorflow as tf
 from AuthUtils import auth_client_from_cloud, auth_client_locally
-from Discriminator import Discriminator
-from Generator import Generator, generate_images, generator_loss
+from Discriminator import Discriminator, calculate_discriminator_loss
+from Generator import Generator, calculate_generator_loss, generate_images
 from Globals import *
 from IPython import display
 from Loader import load, load_image_test, load_image_train
@@ -156,10 +156,10 @@ def train_step(input_image, target, epoch):
         target_score = discriminator([input_image, target], training=True)
         generated_score = discriminator([input_image, generated], training=True)
 
-        generator_total_loss, generator_gan_loss, generator_l1_loss = generator_loss(
-            generated_score, generated, target, loss_object
+        generator_total_loss, generator_gan_loss, generator_l1_loss = (
+            calculate_generator_loss(generated_score, generated, target, loss_object)
         )
-        discriminator_loss = discriminator_loss(
+        discriminator_loss = calculate_discriminator_loss(
             target_score, generated_score, loss_object
         )
 

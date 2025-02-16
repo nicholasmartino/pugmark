@@ -52,7 +52,7 @@ def Discriminator():
 # the sum of real_loss and the generated_loss
 
 
-def discriminator_loss(disc_real_output, disc_generated_output, loss_object):
+def calculate_discriminator_loss(disc_real_output, disc_generated_output, loss_object):
 
     real_loss = loss_object(tf.ones_like(disc_real_output), disc_real_output)
 
