@@ -12,7 +12,7 @@ gcloud run jobs create pugmark-training \
   --region us-central1 \
   --project $GCP_PROJECT_ID \
   --service-account=github-service-account@$GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --task-timeout=3600 \
+  --task-timeout=7200 \
   --parallelism=1 \
   --cpu=4 \
   --memory=4G \

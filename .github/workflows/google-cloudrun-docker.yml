@@ -43,7 +43,7 @@ env:
   SERVICE_ACCOUNT: "github-service-account"
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  TIMEOUT: "7200s"
+  TIMEOUT: "3600s"
 
 jobs:
   Deploy:
