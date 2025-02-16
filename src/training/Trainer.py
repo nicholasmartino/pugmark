@@ -54,16 +54,14 @@ print(input_image.shape)
 # 3. Randomly flip the image horizontally
 
 
-# if PLOT:
-#     plt.figure(figsize=(6, 6))
+# plt.figure(figsize=(6, 6))
 # for i in range(4):
 #     rj_inp, rj_re = random_jitter(inp, re)
 #     if PLOT:
 #         plt.subplot(2, 2, i + 1)
 #         plt.imshow(rj_inp / 255.0)
 #         plt.axis("off")
-# if PLOT:
-#     plt.show()
+# plt.show()
 
 
 """
