@@ -229,6 +229,16 @@ def fit(
 
 
 def train():
+    # Add verification checks
+    print("TensorFlow version:", tf.__version__)
+    print("GPU devices:", tf.config.list_physical_devices("GPU"))
+
+    # Force GPU placement test
+    with tf.device("/GPU:0"):
+        test_tensor = tf.random.normal([2, 2])
+        print("\nTensor device test:", test_tensor.device)
+
+    # Rest of original training code
     fit(train_dataset, test_dataset, generator, checkpoint, checkpoint_dir, EPOCHS)
 
     # restoring the latest checkpoint in checkpoint_dir
