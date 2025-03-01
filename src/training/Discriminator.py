@@ -1,6 +1,7 @@
 import tensorflow as tf
-from Globals import CHANNELS
-from Sampler import downsample
+
+from src.training.Globals import CHANNELS
+from src.training.Sampler import downsample
 
 """
 BUILD THE DISCRIMINATOR

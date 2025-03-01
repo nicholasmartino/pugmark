@@ -1,7 +1,8 @@
 import tensorflow as tf
-from Globals import CHANNELS, LAMBDA, PLOT
 from matplotlib import pyplot as plt
-from Sampler import downsample, upsample
+
+from src.training.Globals import CHANNELS, LAMBDA, PLOT
+from src.training.Sampler import downsample, upsample
 
 """
 BUILD THE GENERATOR
