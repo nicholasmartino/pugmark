@@ -31,12 +31,6 @@ name: "Deploy and Execute Training Pipeline"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - "Dockerfile"
-      - "src/training/*"
 
 env:
   REGION: "us-central1"
