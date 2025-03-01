@@ -58,7 +58,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
           
       - name: Upload notebook output
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: notebook-output
           path: notebooks/output/
