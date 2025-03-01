@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install jupyter papermill gcsfs google-cloud-storage tensorflow
+          pip install jupyter papermill gcsfs google-cloud-storage tensorflow matplotlib
 
       - name: Authenticate to Google Cloud
         id: auth
