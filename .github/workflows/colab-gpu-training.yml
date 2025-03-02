@@ -16,7 +16,6 @@ on:
       - "src/training/**"
       - ".github/workflows/colab-gpu-training.yml"
 
-
 jobs:
   run-on-colab:
     runs-on: ubuntu-latest
@@ -52,6 +51,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install colab-cli gcsfs tensorflow gitpython
+          pip install --upgrade google-auth google-auth-oauthlib google-auth-httplib2
       
       - name: Create output directory
         run: mkdir -p notebooks/output
@@ -60,25 +60,19 @@ jobs:
         run: |
           echo "Executing training notebook with ${{ github.event.inputs.epochs || '50' }} epochs on Colab GPU..."
           
-          # Convert GCP credentials to format needed by colab-cli
-          python -c "
-          import json, os
-          creds_path = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
-          with open(creds_path, 'r') as f:
-              creds = json.load(f)
-          # Save in format expected by colab-cli
-          with open('colab_creds.json', 'w') as f:
-              json.dump(creds, f)
-          "
+          # Check colab-cli version and available commands
+          colab-cli --help
           
-          # Run the notebook with GPU acceleration
-          colab-cli auth login --credentials colab_creds.json
+          # Debug: List available commands
+          echo "Available commands:"
+          colab-cli --help | grep -A 20 "Commands:"
           
-          # Clone repo to Colab and run notebook with parameters
-          colab-cli notebook run notebooks/train_footprints.ipynb \
-            --param EPOCHS=${{ github.event.inputs.epochs || '50' }} \
-            --runtime gpu \
-            --output notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb
+          # Run the notebook with GPU acceleration using direct notebook execution
+          # Most colab-cli implementations use a direct notebook path rather than auth command
+          colab-cli run notebooks/train_footprints.ipynb \
+            --params "EPOCHS=${{ github.event.inputs.epochs || '50' }}" \
+            --machine-type GPU \
+            --output-path notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
           GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
