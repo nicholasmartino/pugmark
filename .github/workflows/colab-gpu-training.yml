@@ -1,4 +1,4 @@
-name: "Execute Training on Colab GPU"
+name: "Execute Training on Colab GPU with colab-cli"
 
 on:
   workflow_dispatch:  # Allow manual trigger
@@ -51,31 +51,36 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install colab-cli gcsfs tensorflow gitpython
+          pip install -r requirements.txt  # Install project dependencies
           pip install --upgrade google-auth google-auth-oauthlib google-auth-httplib2
       
       - name: Create output directory
         run: mkdir -p notebooks/output
       
+      - name: Configure colab-cli authentication
+        run: |
+          mkdir -p ~/.config/colab_cli
+          echo "{\"token\": \"$GCP_ACCESS_TOKEN\"}" > ~/.config/colab_cli/config.json
+          echo "colab-cli configuration created"
+        env:
+          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+      
       - name: Execute notebook on Colab GPU
         run: |
+          # Create timestamp for unique filename
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          OUTPUT_PATH="notebooks/output/train_footprints_${TIMESTAMP}.ipynb"
+          
           echo "Executing training notebook with ${{ github.event.inputs.epochs || '50' }} epochs on Colab GPU..."
           
-          # Check colab-cli version and available commands
-          colab-cli --help
-          
-          # Debug: List available commands
-          echo "Available commands:"
-          colab-cli --help | grep -A 20 "Commands:"
-          
-          # Run the notebook with GPU acceleration using direct notebook execution
-          # Most colab-cli implementations use a direct notebook path rather than auth command
+          # Execute the notebook using colab-cli
           colab-cli run notebooks/train_footprints.ipynb \
             --params "EPOCHS=${{ github.event.inputs.epochs || '50' }}" \
-            --machine-type GPU \
-            --output-path notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb
+            --machine-type "GPU" \
+            --output "$OUTPUT_PATH" \
+            --no-browser
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PYTHONPATH: ${{ github.workspace }}
       
       - name: Upload notebook output
