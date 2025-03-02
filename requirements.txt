@@ -12,8 +12,6 @@ cachetools==5.5.1
 certifi==2024.6.2
 charset-normalizer==3.3.2
 city @ git+https://github.com/nicholasmartino/city.git@5d225f401d44f53b1a958f40bd754e4abd44aee8
-click>=8.0.0
-colab-cli==2.2.5
 colorama==0.4.6
 contourpy==1.3.1
 cycler==0.12.1
@@ -139,7 +137,6 @@ torchvision==0.17.2
 tqdm==4.66.4
 traitlets==5.14.3
 transformers==4.48.0
-typer>=0.3.0
 typing_extensions==4.12.2
 tzdata==2024.1
 uritemplate==4.1.1
