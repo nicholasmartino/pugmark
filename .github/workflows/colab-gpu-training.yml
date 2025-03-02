@@ -14,7 +14,7 @@ on:
     paths:
       - "notebooks/train_footprints.ipynb"
       - "src/training/**"
-      - "colab-gpu-training.yml"
+      - ".github/workflows/colab-gpu-training.yml"
 
 
 jobs:
