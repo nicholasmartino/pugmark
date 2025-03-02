@@ -1,4 +1,4 @@
-name: "Execute Colab Notebook Training"
+name: "Execute Training on Colab GPU"
 
 on:
   workflow_dispatch:  # Allow manual trigger
@@ -16,7 +16,7 @@ on:
       - "src/training/**"
 
 jobs:
-  execute-notebook:
+  run-on-colab:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,18 +25,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install jupyter papermill gcsfs  # Additional requirements for notebook execution
-
+      
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2.1.0
@@ -46,25 +40,51 @@ jobs:
           access_token_lifetime: 3600s
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/devstorage.read_write
+          access_token_scopes: >-
+            https://www.googleapis.com/auth/cloud-platform,
+            https://www.googleapis.com/auth/drive,
+            https://www.googleapis.com/auth/drive.file
           create_credentials_file: true
-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install colab-cli gcsfs tensorflow
+      
       - name: Create output directory
         run: mkdir -p notebooks/output
-
-      - name: Execute Notebook
+      
+      - name: Execute notebook on Colab GPU
         run: |
-          echo "Executing training notebook with ${{ github.event.inputs.epochs || '50' }} epochs..."
-          papermill notebooks/train_footprints.ipynb notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb -k python3 -p EPOCHS ${{ github.event.inputs.epochs || '50' }}
+          echo "Executing training notebook with ${{ github.event.inputs.epochs || '50' }} epochs on Colab GPU..."
+          
+          # Convert GCP credentials to format needed by colab-cli
+          python -c "
+          import json, os
+          creds_path = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+          with open(creds_path, 'r') as f:
+              creds = json.load(f)
+          # Save in format expected by colab-cli
+          with open('colab_creds.json', 'w') as f:
+              json.dump(creds, f)
+          "
+          
+          # Run the notebook with GPU acceleration
+          colab-cli auth login --credentials colab_creds.json
+          
+          # Clone repo to Colab and run notebook with parameters
+          colab-cli notebook run notebooks/train_footprints.ipynb \
+            --param EPOCHS=${{ github.event.inputs.epochs || '50' }} \
+            --runtime gpu \
+            --output notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
           GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PYTHONPATH: ${{ github.workspace }}
-          GITHUB_ACTIONS: "true"
-          
+      
       - name: Upload notebook output
         uses: actions/upload-artifact@v4
         with:
-          name: notebook-output
+          name: colab-results
           path: notebooks/output/
           retention-days: 7 
