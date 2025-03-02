@@ -50,9 +50,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install click==8.0.4
+          # Then install colab-cli and other dependencies
           pip install colab-cli gcsfs tensorflow gitpython
           pip install -r requirements.txt  # Install project dependencies
           pip install --upgrade google-auth google-auth-oauthlib google-auth-httplib2
+          # Check installed versions for debugging
+          pip list | grep -E 'click|colab-cli'
       
       - name: Create output directory
         run: mkdir -p notebooks/output
