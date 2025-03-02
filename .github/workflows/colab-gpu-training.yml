@@ -50,22 +50,33 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # First uninstall any existing packages that might cause conflicts
+          
+          # Complete uninstall of any previous versions
           pip uninstall -y click typer colab-cli
-          # Install specific versions of dependencies in the correct order
-          pip install click==8.0.4
-          pip install typer==0.7.0
-          # Now install colab-cli with a correct version
-          pip install colab-cli==2.2.5
-          # Install remaining dependencies
+          
+          # Create requirements file with exact dependency versions
+          cat > colab_deps.txt << EOF
+          click==7.1.2
+          typer==0.3.2
+          colab-cli==2.2.5
+          EOF
+          
+          # Install packages in specific order with --no-deps to prevent automatic dependency resolution
+          pip install --no-deps click==7.1.2
+          pip install --no-deps typer==0.3.2
+          pip install --no-deps colab-cli==2.2.5
+          
+          # Now install other dependencies
           pip install gcsfs tensorflow gitpython
           pip install -r requirements.txt  # Install project dependencies
           pip install --upgrade google-auth google-auth-oauthlib google-auth-httplib2
-          # More extensive debugging information
+          
+          # Try importing colab-cli to verify it works
+          python -c "from colab_cli.main import app; print('colab-cli import successful')"
+          
+          # Debugging information
           echo "Checking installed packages:"
           pip list | grep -E 'click|typer|colab-cli'
-          echo "Checking click module contents:"
-          python -c "import click; print(dir(click.termui))"
       
       - name: Create output directory
         run: mkdir -p notebooks/output
