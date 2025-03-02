@@ -55,8 +55,8 @@ jobs:
           # Install specific versions of dependencies in the correct order
           pip install click==8.0.4
           pip install typer==0.7.0
-          # Now install colab-cli
-          pip install colab-cli==0.8.6
+          # Now install colab-cli with a correct version
+          pip install colab-cli==2.2.5
           # Install remaining dependencies
           pip install gcsfs tensorflow gitpython
           pip install -r requirements.txt  # Install project dependencies
