@@ -46,7 +46,8 @@ jobs:
           access_token_lifetime: 3600s
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/devstorage.read_write
+          create_credentials_file: true
 
       - name: Create output directory
         run: mkdir -p notebooks/output
@@ -57,7 +58,9 @@ jobs:
           papermill notebooks/train_footprints.ipynb notebooks/output/train_footprints_$(date +%Y%m%d_%H%M%S).ipynb -k python3 -p EPOCHS ${{ github.event.inputs.epochs || '50' }}
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PYTHONPATH: ${{ github.workspace }}
+          GITHUB_ACTIONS: "true"
           
       - name: Upload notebook output
         uses: actions/upload-artifact@v4
