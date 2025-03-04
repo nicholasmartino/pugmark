@@ -76,34 +76,29 @@ def setup_argparse():
     return parser.parse_args()
 
 
-def get_drive_service(access_token):
-    """Create Google Drive API service using an access token."""
+def authenticate():
+    """Authenticate with Google API using the provided credentials."""
+    print("Authenticating with Google API...", flush=True)
+
+    # Get access token from environment
+    access_token = os.environ.get("GCP_ACCESS_TOKEN")
+    if not access_token:
+        error_msg = "GCP_ACCESS_TOKEN environment variable is not set"
+        print(f"ERROR: {error_msg}", flush=True)
+        raise ValueError(error_msg)
+
+    # Create credentials using the access token
+    credentials = Credentials(access_token)
+
+    # Build the Drive API service
+    drive_service = build("drive", "v3", credentials=credentials)
+
+    # Verify the service works
     try:
-        print(
-            f"Creating credentials with access token (length: {len(access_token) if access_token else 0})",
-            flush=True,
-        )
-        credentials = Credentials(token=access_token)
-
-        print("Building Drive API service...", flush=True)
-        service = build("drive", "v3", credentials=credentials)
-
-        # Test the service with a simple API call
-        print("Testing Drive API service with files.list call...", flush=True)
-        test_result = service.files().list(pageSize=1).execute()
-        print(f"Drive API service test successful: {test_result.keys()}", flush=True)
-
-        return service
+        test_result = drive_service.files().list(pageSize=1).execute()
+        print(f"Drive API service test successful", flush=True)
     except Exception as e:
-        error_msg = f"Error creating Drive API service: {e}"
-        print(error_msg, flush=True)
-        print("\nError details:", flush=True)
-        traceback.print_exc()
-        with open("/tmp/colab_error.log", "w") as f:
-            f.write(f"{error_msg}\n")
-            traceback.print_exc(file=f)
-
-        # Provide more detailed troubleshooting advice
+        print(f"Error testing Drive API: {e}", flush=True)
         print("\nTROUBLESHOOTING TIPS:", flush=True)
         print(
             "1. Check that the Google Drive API is enabled in your Google Cloud Console",
@@ -118,8 +113,10 @@ def get_drive_service(access_token):
             flush=True,
         )
         print("3. Make sure your access token is valid and not expired", flush=True)
-
         raise
+
+    print("Successfully authenticated with Google API", flush=True)
+    return credentials, drive_service
 
 
 def inject_parameters(notebook_path, params):
@@ -600,15 +597,19 @@ def cleanup(drive_service, file_id, temp_file=None):
 
 
 def main():
-    # Set up argument parsing
+    """Main entry point for the script."""
+    # Set up argument parsing to match the original interface
     parser = argparse.ArgumentParser(
         description="Execute notebook in Colab and download results"
     )
-    parser.add_argument("--notebook", required=True, help="Path to notebook file")
+    parser.add_argument("notebook_path", help="Path to notebook file")
     parser.add_argument(
-        "--output_path",
-        help="Path to save executed notebook (defaults to original path with _executed suffix)",
-        default=None,
+        "--params",
+        help="Parameters to inject into the notebook in format PARAM1=VALUE1,PARAM2=VALUE2",
+        default="",
+    )
+    parser.add_argument(
+        "--output", dest="output", help="Path to save executed notebook", default=None
     )
     parser.add_argument(
         "--timeout",
@@ -617,29 +618,57 @@ def main():
         help="Timeout in minutes for notebook execution",
     )
     parser.add_argument(
-        "--machine_type",
-        choices=["cpu", "gpu", "tpu"],
-        default="gpu",
-        help="Colab machine type (cpu, gpu, tpu)",
+        "--machine-type",
+        dest="machine_type",
+        choices=["CPU", "GPU", "TPU"],
+        default="GPU",
+        help="Colab machine type (CPU, GPU, TPU)",
+    )
+    parser.add_argument(
+        "--no-browser",
+        dest="no_browser",
+        action="store_true",
+        help="Don't open browser to check execution",
     )
     args = parser.parse_args()
 
     # If output path isn't specified, create one
-    if args.output_path is None:
-        filename, ext = os.path.splitext(args.notebook)
-        args.output_path = f"{filename}_executed{ext}"
+    if args.output is None:
+        filename, ext = os.path.splitext(args.notebook_path)
+        args.output = f"{filename}_executed{ext}"
 
-    print(f"Starting notebook execution job:", flush=True)
-    print(f"  - Notebook: {args.notebook}", flush=True)
-    print(f"  - Output Path: {args.output_path}", flush=True)
-    print(f"  - Machine Type: {args.machine_type}", flush=True)
-    print(f"  - Timeout: {args.timeout} minutes", flush=True)
+    print("=== Starting Colab Execution Script ===", flush=True)
+    print(f"Python version: {sys.version}", flush=True)
+    print(f"Current directory: {os.getcwd()}", flush=True)
+    print(f"Script path: {os.path.abspath(__file__)}", flush=True)
+
+    print("Importing required modules...", flush=True)
+    try:
+        import nbformat
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+
+        print("All modules imported successfully", flush=True)
+    except ImportError as e:
+        print(f"Error importing modules: {e}", flush=True)
+        sys.exit(1)
+
+    print("Setting up unbuffered output...", flush=True)
 
     try:
         # Upload notebook to drive
         print("\n=== STEP 1: Uploading notebook to Google Drive ===", flush=True)
-        credentials, drive_service = authenticate()
-        file_id = upload_to_drive(drive_service, args.notebook)
+
+        # Authenticate with Google Drive
+        _, drive_service = authenticate()
+
+        # Inject parameters if provided
+        temp_notebook_path = args.notebook_path
+        if args.params:
+            print(f"Injecting parameters into notebook: {args.params}", flush=True)
+            temp_notebook_path = inject_parameters(args.notebook_path, args.params)
+
+        file_id = upload_to_drive(drive_service, temp_notebook_path)
 
         if file_id:
             # Execute notebook
@@ -659,7 +688,7 @@ def main():
 
             # Download results
             print("\n=== STEP 4: Downloading executed notebook ===", flush=True)
-            download_from_drive(drive_service, file_id, args.output_path)
+            download_from_drive(drive_service, file_id, args.output)
 
             if execution_complete:
                 print("\n✅ Notebook execution completed successfully!", flush=True)
@@ -673,7 +702,7 @@ def main():
                     flush=True,
                 )
 
-            print(f"\nExecuted notebook saved to: {args.output_path}", flush=True)
+            print(f"\nExecuted notebook saved to: {args.output}", flush=True)
 
             # Information for manual access
             print("\n=== ACCESS INFORMATION ===", flush=True)
@@ -682,6 +711,12 @@ def main():
                 "You can always access this notebook through Google Drive or Colab",
                 flush=True,
             )
+
+            # Clean up temporary files if needed
+            if temp_notebook_path != args.notebook_path:
+                cleanup(drive_service, file_id, temp_file=temp_notebook_path)
+
+            return 0
         else:
             print(
                 "Failed to upload notebook to Drive. See error messages above.",
@@ -696,4 +731,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

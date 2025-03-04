@@ -60,7 +60,9 @@ jobs:
         run: mkdir -p notebooks/output
         
       - name: Set script permissions
-        run: chmod +x run_colab.py
+        run: |
+          chmod +x run_colab.py
+          chmod +x colab_cells.py
       
       - name: Execute notebook on Colab GPU
         run: |
@@ -78,6 +80,7 @@ jobs:
           echo "Current directory: $(pwd)"
           echo "Python version: $(python --version)"
           echo "Script exists: $(ls -la run_colab.py)"
+          echo "Helper script exists: $(ls -la colab_cells.py)"
           
           # Execute the notebook using our custom script with error trapping
           set -x  # Print commands before execution
@@ -93,6 +96,7 @@ jobs:
           # Uncomment and set these as needed:
           SHARE_WITH_EMAIL: ${{ secrets.USER_EMAIL }}  # Your Google account email for sharing
           SHARED_DRIVE_ID: ${{ secrets.SHARED_DRIVE_ID }}  # ID of your shared drive
+          ENABLE_PUBLIC_ACCESS: "true"  # If direct sharing fails, make the file accessible to anyone with the link
       
       - name: Upload notebook output
         uses: actions/upload-artifact@v4
