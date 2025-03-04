@@ -17,7 +17,7 @@ on:
       - ".github/workflows/colab-gpu-training.yml"
 
 jobs:
-  run-on-colab:
+  RunColab:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,8 +61,8 @@ jobs:
         
       - name: Set script permissions
         run: |
-          chmod +x run_colab.py
-          chmod +x colab_cells.py
+          chmod +x src/training/run_colab.py
+          chmod +x src/training/colab_cells.py
       
       - name: Execute notebook on Colab GPU
         run: |
@@ -79,12 +79,12 @@ jobs:
           # Add debug prints to check environment
           echo "Current directory: $(pwd)"
           echo "Python version: $(python --version)"
-          echo "Script exists: $(ls -la run_colab.py)"
-          echo "Helper script exists: $(ls -la colab_cells.py)"
+          echo "Script exists: $(ls -la src/training/run_colab.py)"
+          echo "Helper script exists: $(ls -la src/training/colab_cells.py)"
           
           # Execute the notebook using our custom script with error trapping
           set -x  # Print commands before execution
-          python -u run_colab.py notebooks/train_footprints.ipynb \
+          python -u src/training/run_colab.py notebooks/train_footprints.ipynb \
             --params "EPOCHS=${{ github.event.inputs.epochs || '50' }}" \
             --machine-type "GPU" \
             --output "$OUTPUT_PATH" \
