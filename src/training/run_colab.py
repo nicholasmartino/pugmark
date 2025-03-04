@@ -18,16 +18,24 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
 # Import the notebook cells content
 try:
-    from training.colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
+    # First try direct import from same directory
+    from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
 
     print("Successfully imported notebook cells from colab_cells.py", flush=True)
-except ImportError as e:
-    print(f"Error importing colab_cells.py: {e}", flush=True)
-    LOG_STREAMING_CELL = """
+except ImportError:
+    # If direct import fails, try adjusting the path
+    try:
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
+
+        print("Successfully imported notebook cells via path adjustment", flush=True)
+    except ImportError as e:
+        print(f"Error importing colab_cells.py: {e}", flush=True)
+        LOG_STREAMING_CELL = """
 # This is a fallback log streaming cell
 print("Log streaming is not available - colab_cells.py could not be imported")
 """
-    AUTORUN_CELL = """
+        AUTORUN_CELL = """
 # This is a fallback autorun cell
 print("Autorun is not available - colab_cells.py could not be imported")
 """
