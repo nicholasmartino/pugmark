@@ -93,7 +93,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Uncomment and set these as needed:
-          # SHARE_WITH_EMAIL: ${{ secrets.USER_EMAIL }}  # Your Google account email for sharing
+          SHARE_WITH_EMAIL: ${{ secrets.USER_EMAIL }}  # Your Google account email for sharing
           # SHARED_DRIVE_ID: ${{ secrets.SHARED_DRIVE_ID }}  # ID of your shared drive
       
       - name: Upload notebook output
