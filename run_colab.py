@@ -5,10 +5,16 @@ This replaces the colab-cli dependency with direct API calls.
 """
 
 import argparse
+import io
 import os
 import sys
 import time
 import traceback
+
+import nbformat
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 # Add early debugging prints
 print("=== Starting Colab Execution Script ===")
@@ -39,6 +45,9 @@ print("Setting up unbuffered output...", flush=True)
     if hasattr(sys.stdout, "reconfigure")
     else None
 )
+
+# Import the notebook cells content
+from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
 
 
 def setup_argparse():
@@ -312,11 +321,64 @@ def upload_to_drive(drive_service, file_path):
 
 def create_colab_vm_and_execute(drive_service, file_id, machine_type):
     """Create a Colab VM and execute the notebook."""
-    print(f"Creating Colab VM with {machine_type} and executing notebook...")
+    print(
+        f"Creating Colab VM with {machine_type} and executing notebook...", flush=True
+    )
+
+    # Check if we're using a shared drive
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    params = {}
+    if shared_drive_id:
+        params["supportsAllDrives"] = True
+
+    # Add a cell at the top that automatically executes all cells and streams logs
+    try:
+        # First, get the current notebook content
+        print(
+            "Getting notebook content to add autorun and logging cells...", flush=True
+        )
+        response = drive_service.files().get_media(fileId=file_id, **params).execute()
+
+        if response:
+            # Parse the notebook
+            notebook_content = nbformat.reads(response.decode("utf-8"), as_version=4)
+
+            # Create logging cell from imported code
+            log_cell = nbformat.v4.new_code_cell(LOG_STREAMING_CELL)
+
+            # Add autorun cell from imported code
+            autorun_cell = nbformat.v4.new_code_cell(AUTORUN_CELL)
+
+            # Insert at beginning (in reverse order so they appear in the right sequence)
+            notebook_content.cells.insert(0, autorun_cell)
+            notebook_content.cells.insert(0, log_cell)
+
+            # Convert back to string
+            updated_notebook = nbformat.writes(notebook_content)
+
+            # Update the file in Drive
+            media = MediaFileUpload(
+                io.BytesIO(updated_notebook.encode()),
+                mimetype="application/x-ipynb+json",
+                resumable=True,
+            )
+
+            drive_service.files().update(
+                fileId=file_id, media_body=media, **params
+            ).execute()
+
+            print("Added log streaming and autorun cells to notebook", flush=True)
+
+    except Exception as e:
+        print(f"Could not add streaming cells: {e}", flush=True)
+        print(
+            "The notebook will need to be executed manually and logs won't be streamed",
+            flush=True,
+        )
+        traceback.print_exc()
 
     # Using drive API to update file resource with Colab execution metadata
-    # This is a simplified approach - the actual Colab API is not public
-    # In a production setting, you might need more sophisticated methods
+    print("Setting Colab execution metadata...", flush=True)
     file_metadata = {
         "appProperties": {
             "colab-machine-type": machine_type.lower(),
@@ -324,26 +386,55 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
         }
     }
 
-    drive_service.files().update(fileId=file_id, body=file_metadata).execute()
+    drive_service.files().update(fileId=file_id, body=file_metadata, **params).execute()
 
-    # Generate a Colab URL for manual execution if needed
+    # Generate UI access URLs
     colab_url = f"https://colab.research.google.com/drive/{file_id}"
-    print(f"Notebook is being executed. You can monitor it at: {colab_url}")
+    drive_url = f"https://drive.google.com/file/d/{file_id}/view"
 
-    # In a real implementation, we'd poll the execution status
-    # Since the Colab execution API is not public, this is a simplified approach
-    return colab_url
+    print("\n==== COLAB NOTEBOOK ACCESS ====", flush=True)
+    print(f"Colab URL: {colab_url}", flush=True)
+    print(f"Drive URL: {drive_url}", flush=True)
+    print("==============================\n", flush=True)
 
-
-def wait_for_execution(drive_service, file_id, timeout_minutes=180):
-    """Wait for the notebook execution to complete."""
-    print("Waiting for notebook execution to complete...", flush=True)
+    print("\n==== HOW TO CONNECT TO RUNTIME ====", flush=True)
+    print("1. Click the Colab URL above to open the notebook", flush=True)
     print(
-        f"Colab execution will continue for up to {timeout_minutes} minutes.",
+        "2. If not connected automatically, click the 'Connect' button in the top-right corner",
         flush=True,
     )
-    print("The notebook will be downloaded when execution completes.", flush=True)
-    print("You can monitor execution via the Colab URL shown above.", flush=True)
+    print("3. If prompted, select 'Connect to a hosted runtime'", flush=True)
+    print(
+        "4. For GPU access, go to Runtime → Change runtime type → Hardware accelerator → GPU",
+        flush=True,
+    )
+    print(
+        "5. If the autorun cell didn't work, use Runtime → Run all (or press Ctrl+F9)",
+        flush=True,
+    )
+    print("==============================\n", flush=True)
+
+    # If using a shared drive, provide additional info
+    if shared_drive_id:
+        print(
+            "\nNOTE: This notebook is in a Shared Drive. All team members with access to"
+        )
+        print(
+            f"the Shared Drive (ID: {shared_drive_id}) can view and edit it.",
+            flush=True,
+        )
+
+    return colab_url, "colab_execution_log.txt"  # Return log file name for streaming
+
+
+def wait_for_execution(
+    drive_service, file_id, log_file_name="colab_execution_log.txt", timeout_minutes=180
+):
+    """Wait for the Colab notebook to finish execution."""
+    print(
+        f"Waiting for notebook execution to complete (timeout: {timeout_minutes} minutes)...",
+        flush=True,
+    )
 
     # Check if we're using a shared drive
     shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
@@ -352,67 +443,149 @@ def wait_for_execution(drive_service, file_id, timeout_minutes=180):
         params["supportsAllDrives"] = True
 
     start_time = time.time()
-    timeout_seconds = timeout_minutes * 60
+    elapsed_minutes = 0
+    log_file_id = None
+    last_log_position = 0
 
-    # Check occasionally to see if execution is complete
-    check_interval_minutes = 5  # Only check every 5 minutes
-
-    # Initial wait to let Colab start up
-    time.sleep(60)
-
-    while time.time() - start_time < timeout_seconds:
-        # Check file metadata for execution status
-        file = (
+    # First, try to find the log file in the same folder as the notebook
+    try:
+        # Get the parent folder of the notebook
+        file_info = (
             drive_service.files()
-            .get(fileId=file_id, fields="appProperties", **params)
+            .get(fileId=file_id, fields="parents", **params)
             .execute()
         )
 
-        app_properties = file.get("appProperties", {})
-        if "colab-execution-complete" in app_properties:
-            print("Execution complete!", flush=True)
-            return True
+        if "parents" in file_info and file_info["parents"]:
+            parent_id = file_info["parents"][0]
 
-        # Calculate elapsed time and print brief status
-        elapsed_minutes = int((time.time() - start_time) / 60)
-        print(
-            f"Execution in progress... ({elapsed_minutes} minutes elapsed)", flush=True
-        )
+            # Search for the log file
+            query = f"name = '{log_file_name}' and '{parent_id}' in parents and trashed = false"
+            results = (
+                drive_service.files()
+                .list(q=query, spaces="drive", fields="files(id, name)", **params)
+                .execute()
+            )
 
-        # Wait for next check interval
-        time.sleep(check_interval_minutes * 60)
+            log_files = results.get("files", [])
+            if log_files:
+                log_file_id = log_files[0]["id"]
+                print(f"Found log file with ID: {log_file_id}", flush=True)
+                print("\n==== BEGINNING LOG STREAM ====", flush=True)
+    except Exception as e:
+        print(f"Error finding log file: {e}", flush=True)
+        print("Will continue without log streaming", flush=True)
 
+    # Loop to check the status and stream logs
+    while elapsed_minutes < timeout_minutes:
+        # Sleep first to give a chance for execution to start
+        time.sleep(60)  # Check every minute
+
+        elapsed_minutes = (time.time() - start_time) / 60
+        print(f"Elapsed time: {elapsed_minutes:.1f} minutes", flush=True)
+
+        # Stream logs if we have a log file
+        if log_file_id:
+            try:
+                # Download the log file content
+                response = (
+                    drive_service.files()
+                    .get_media(fileId=log_file_id, **params)
+                    .execute()
+                )
+
+                if response:
+                    log_content = response.decode("utf-8")
+
+                    # Print new content only
+                    if len(log_content) > last_log_position:
+                        new_content = log_content[last_log_position:]
+                        print(new_content, end="", flush=True)
+                        last_log_position = len(log_content)
+
+                        # Check for completion message in the logs
+                        if "Execution complete!" in new_content:
+                            print(
+                                "\n==== NOTEBOOK EXECUTION COMPLETED ====", flush=True
+                            )
+                            return True
+            except Exception as e:
+                print(f"Error streaming logs: {e}", flush=True)
+
+        # Check the notebook outputs as a fallback
+        try:
+            response = (
+                drive_service.files().get_media(fileId=file_id, **params).execute()
+            )
+
+            if response:
+                notebook = nbformat.reads(response.decode("utf-8"), as_version=4)
+
+                # Check for cells with output
+                executed_cell_count = 0
+                for cell in notebook.cells:
+                    if (
+                        cell.cell_type == "code"
+                        and hasattr(cell, "outputs")
+                        and cell.outputs
+                    ):
+                        executed_cell_count += 1
+
+                # Simple heuristic: If we have outputs in cells, assume progress is being made
+                if executed_cell_count > 1:  # More than just our added cells
+                    last_cell_with_output = None
+                    for i, cell in enumerate(notebook.cells):
+                        if (
+                            cell.cell_type == "code"
+                            and hasattr(cell, "outputs")
+                            and cell.outputs
+                        ):
+                            last_cell_with_output = i
+
+                    if (
+                        last_cell_with_output is not None
+                        and last_cell_with_output >= len(notebook.cells) - 2
+                    ):
+                        # If the last cells have output, likely finished
+                        print("\n==== NOTEBOOK EXECUTION COMPLETED ====", flush=True)
+                        return True
+
+        except Exception as e:
+            print(f"Error checking notebook status: {e}", flush=True)
+
+    # If we've reached the timeout
     print(
-        f"Timeout after {timeout_minutes} minutes. Execution may still be in progress.",
+        f"Timeout of {timeout_minutes} minutes reached. Proceeding with download of current state.",
         flush=True,
     )
     return False
 
 
-def download_executed_notebook(drive_service, file_id, output_path):
-    """Download the executed notebook."""
-    print(f"Downloading executed notebook to {output_path}...")
+def download_from_drive(drive_service, file_id, output_path):
+    """Download the executed notebook from Drive."""
+    print(f"Downloading file from Drive to {output_path}...", flush=True)
 
-    # Ensure the output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # Check if we're using a shared drive
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    params = {}
+    if shared_drive_id:
+        params["supportsAllDrives"] = True
 
-    # Export the file content
-    response = drive_service.files().export_media(
-        fileId=file_id, mimeType="application/x-ipynb+json"
-    )
+    try:
+        # Get the file content
+        request = drive_service.files().get_media(fileId=file_id, **params)
+        content = request.execute()
 
-    with open(output_path, "wb") as f:
-        # Process the response in chunks
-        downloader = MediaFileUpload(
-            f, mimetype="application/x-ipynb+json", resumable=True
-        )
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-            if status:
-                print(f"Download {int(status.progress() * 100)}%")
+        # Write content to output file
+        with open(output_path, "wb") as f:
+            f.write(content)
 
-    print(f"Notebook downloaded to {output_path}")
+        print(f"Successfully downloaded notebook to {output_path}", flush=True)
+        return True
+    except Exception as e:
+        print(f"Error downloading notebook: {e}", flush=True)
+        traceback.print_exc()
+        return False
 
 
 def cleanup(drive_service, file_id, temp_file=None):
@@ -427,113 +600,99 @@ def cleanup(drive_service, file_id, temp_file=None):
 
 
 def main():
-    print("Parsing command line arguments...", flush=True)
-    args = setup_argparse()
-    print(f"Arguments: {args}", flush=True)
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(
+        description="Execute notebook in Colab and download results"
+    )
+    parser.add_argument("--notebook", required=True, help="Path to notebook file")
+    parser.add_argument(
+        "--output_path",
+        help="Path to save executed notebook (defaults to original path with _executed suffix)",
+        default=None,
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=180,
+        help="Timeout in minutes for notebook execution",
+    )
+    parser.add_argument(
+        "--machine_type",
+        choices=["cpu", "gpu", "tpu"],
+        default="gpu",
+        help="Colab machine type (cpu, gpu, tpu)",
+    )
+    args = parser.parse_args()
 
-    # Get access token from environment
-    access_token = os.environ.get("GCP_ACCESS_TOKEN")
-    if not access_token:
-        error_msg = "GCP_ACCESS_TOKEN environment variable is not set"
-        print(f"ERROR: {error_msg}", flush=True)
-        with open("/tmp/colab_error.log", "w") as f:
-            f.write(f"{error_msg}\n")
-        raise ValueError(error_msg)
+    # If output path isn't specified, create one
+    if args.output_path is None:
+        filename, ext = os.path.splitext(args.notebook)
+        args.output_path = f"{filename}_executed{ext}"
 
-    # Print environment information for debugging
-    print("Environment variables:", flush=True)
-    for key in ["GOOGLE_APPLICATION_CREDENTIALS", "PYTHONPATH", "GITHUB_TOKEN"]:
-        print(f"  {key}: {'SET' if os.environ.get(key) else 'NOT SET'}", flush=True)
-
-    # Print Drive API usage information
-    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
-    print(f"Using Shared Drive: {'Yes' if shared_drive_id else 'No'}", flush=True)
-    if shared_drive_id:
-        print(f"Shared Drive ID: {shared_drive_id}", flush=True)
-
-    user_email = os.environ.get("SHARE_WITH_EMAIL")
-    print(f"Sharing with user: {'Yes' if user_email else 'No'}", flush=True)
-    if user_email:
-        print(f"User email: {user_email}", flush=True)
-
-    # Inject parameters if needed
-    print(f"Injecting parameters into notebook: {args.notebook_path}", flush=True)
-    temp_notebook_path = inject_parameters(args.notebook_path, args.params)
-    file_id = None
+    print(f"Starting notebook execution job:", flush=True)
+    print(f"  - Notebook: {args.notebook}", flush=True)
+    print(f"  - Output Path: {args.output_path}", flush=True)
+    print(f"  - Machine Type: {args.machine_type}", flush=True)
+    print(f"  - Timeout: {args.timeout} minutes", flush=True)
 
     try:
-        # Initialize Drive API
-        print("Initializing Google Drive API service...", flush=True)
-        drive_service = get_drive_service(access_token)
-        print("Drive service initialized successfully", flush=True)
+        # Upload notebook to drive
+        print("\n=== STEP 1: Uploading notebook to Google Drive ===", flush=True)
+        credentials, drive_service = authenticate()
+        file_id = upload_to_drive(drive_service, args.notebook)
 
-        try:
-            # Upload notebook to Drive
-            print("Starting notebook upload to Drive...", flush=True)
-            file_id = upload_to_drive(drive_service, temp_notebook_path)
-            print(f"Upload successful, file_id: {file_id}", flush=True)
-        except Exception as e:
-            error_msg = f"Error uploading to Drive: {e}"
-            print(error_msg, flush=True)
-            print(
-                "Check if the service account has permission to access Google Drive",
-                flush=True,
+        if file_id:
+            # Execute notebook
+            print("\n=== STEP 2: Executing notebook on Colab ===", flush=True)
+            colab_url, log_file_name = create_colab_vm_and_execute(
+                drive_service, file_id, args.machine_type
             )
-            print("\nError details:", flush=True)
-            traceback.print_exc()
-            with open("/tmp/colab_error.log", "w") as f:
-                f.write(f"{error_msg}\n")
-                traceback.print_exc(file=f)
-            raise
 
-        # Execute notebook
-        print("Creating Colab VM and executing notebook...", flush=True)
-        colab_url = create_colab_vm_and_execute(
-            drive_service, file_id, args.machine_type
-        )
+            # Wait for execution
+            print("\n=== STEP 3: Waiting for execution to complete ===", flush=True)
+            execution_complete = wait_for_execution(
+                drive_service,
+                file_id,
+                log_file_name=log_file_name,
+                timeout_minutes=args.timeout,
+            )
 
-        # Wait for execution to complete
-        print("Waiting for notebook execution to complete...", flush=True)
-        execution_complete = wait_for_execution(drive_service, file_id)
+            # Download results
+            print("\n=== STEP 4: Downloading executed notebook ===", flush=True)
+            download_from_drive(drive_service, file_id, args.output_path)
 
-        # Download the executed notebook
-        if execution_complete:
-            print(f"Downloading executed notebook to {args.output}", flush=True)
-            download_executed_notebook(drive_service, file_id, args.output)
+            if execution_complete:
+                print("\n✅ Notebook execution completed successfully!", flush=True)
+            else:
+                print("\n⚠️ Notebook execution timed out or had errors.", flush=True)
+                print(
+                    "   The notebook was downloaded in its current state.", flush=True
+                )
+                print(
+                    "   You may need to check the notebook for errors and completion status.",
+                    flush=True,
+                )
+
+            print(f"\nExecuted notebook saved to: {args.output_path}", flush=True)
+
+            # Information for manual access
+            print("\n=== ACCESS INFORMATION ===", flush=True)
+            print(f"Colab URL: {colab_url}", flush=True)
             print(
-                f"Notebook execution completed and results saved to {args.output}",
+                "You can always access this notebook through Google Drive or Colab",
                 flush=True,
             )
         else:
             print(
-                "Notebook execution did not complete within the timeout period.",
+                "Failed to upload notebook to Drive. See error messages above.",
                 flush=True,
             )
-            print(f"You can check the status manually at: {colab_url}", flush=True)
+            sys.exit(1)
 
     except Exception as e:
-        error_msg = f"Error during Colab execution process: {e}"
-        print(error_msg, flush=True)
-        print("Check service account permissions and Google API access", flush=True)
-        print("\nError details:", flush=True)
+        print(f"Error: {e}", flush=True)
         traceback.print_exc()
-        with open("/tmp/colab_error.log", "w") as f:
-            f.write(f"{error_msg}\n")
-            traceback.print_exc(file=f)
-        raise
-    finally:
-        # Clean up resources
-        if file_id:
-            print("Cleaning up resources...", flush=True)
-            cleanup(
-                drive_service,
-                file_id,
-                (
-                    temp_notebook_path
-                    if temp_notebook_path != args.notebook_path
-                    else None
-                ),
-            )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
