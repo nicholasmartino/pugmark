@@ -14,20 +14,35 @@ import traceback
 import nbformat
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+
+# Import the notebook cells content
+try:
+    from training.colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
+
+    print("Successfully imported notebook cells from colab_cells.py", flush=True)
+except ImportError as e:
+    print(f"Error importing colab_cells.py: {e}", flush=True)
+    LOG_STREAMING_CELL = """
+# This is a fallback log streaming cell
+print("Log streaming is not available - colab_cells.py could not be imported")
+"""
+    AUTORUN_CELL = """
+# This is a fallback autorun cell
+print("Autorun is not available - colab_cells.py could not be imported")
+"""
 
 # Add early debugging prints
-print("=== Starting Colab Execution Script ===")
-print(f"Python version: {sys.version}")
-print(f"Current directory: {os.getcwd()}")
-print(f"Script path: {__file__}")
+print(f"Python version: {sys.version}", flush=True)
+print(f"Current directory: {os.getcwd()}", flush=True)
+print(f"Script path: {os.path.abspath(__file__)}", flush=True)
 
 try:
     print("Importing required modules...")
     import nbformat
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
     print("All modules imported successfully")
 except ImportError as e:
@@ -45,9 +60,6 @@ print("Setting up unbuffered output...", flush=True)
     if hasattr(sys.stdout, "reconfigure")
     else None
 )
-
-# Import the notebook cells content
-from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
 
 
 def setup_argparse():
@@ -353,11 +365,10 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
             # Convert back to string
             updated_notebook = nbformat.writes(notebook_content)
 
-            # Update the file in Drive
-            media = MediaFileUpload(
-                io.BytesIO(updated_notebook.encode()),
-                mimetype="application/x-ipynb+json",
-                resumable=True,
+            # Update the file in Drive - using MediaIoBaseUpload for BytesIO
+            byte_content = io.BytesIO(updated_notebook.encode())
+            media = MediaIoBaseUpload(
+                byte_content, mimetype="application/x-ipynb+json", resumable=True
             )
 
             drive_service.files().update(
@@ -641,17 +652,6 @@ def main():
     print(f"Python version: {sys.version}", flush=True)
     print(f"Current directory: {os.getcwd()}", flush=True)
     print(f"Script path: {os.path.abspath(__file__)}", flush=True)
-
-    print("Importing required modules...", flush=True)
-    try:
-        import nbformat
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-
-        print("All modules imported successfully", flush=True)
-    except ImportError as e:
-        print(f"Error importing modules: {e}", flush=True)
-        sys.exit(1)
 
     print("Setting up unbuffered output...", flush=True)
 

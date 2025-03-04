@@ -96,7 +96,6 @@ jobs:
           # Uncomment and set these as needed:
           SHARE_WITH_EMAIL: ${{ secrets.USER_EMAIL }}  # Your Google account email for sharing
           SHARED_DRIVE_ID: ${{ secrets.SHARED_DRIVE_ID }}  # ID of your shared drive
-          ENABLE_PUBLIC_ACCESS: "true"  # If direct sharing fails, make the file accessible to anyone with the link
       
       - name: Upload notebook output
         uses: actions/upload-artifact@v4
