@@ -6,12 +6,39 @@ This replaces the colab-cli dependency with direct API calls.
 
 import argparse
 import os
+import sys
 import time
+import traceback
 
-import nbformat
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+# Add early debugging prints
+print("=== Starting Colab Execution Script ===")
+print(f"Python version: {sys.version}")
+print(f"Current directory: {os.getcwd()}")
+print(f"Script path: {__file__}")
+
+try:
+    print("Importing required modules...")
+    import nbformat
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+
+    print("All modules imported successfully")
+except ImportError as e:
+    print(f"ERROR importing modules: {e}")
+    traceback.print_exc()
+    with open("/tmp/colab_error.log", "w") as f:
+        f.write(f"Import error: {e}\n")
+        traceback.print_exc(file=f)
+    sys.exit(1)
+
+# Ensure prints are flushed immediately
+print("Setting up unbuffered output...", flush=True)
+(
+    sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stdout, "reconfigure")
+    else None
+)
 
 
 def setup_argparse():
@@ -42,8 +69,48 @@ def setup_argparse():
 
 def get_drive_service(access_token):
     """Create Google Drive API service using an access token."""
-    credentials = Credentials(token=access_token)
-    return build("drive", "v3", credentials=credentials)
+    try:
+        print(
+            f"Creating credentials with access token (length: {len(access_token) if access_token else 0})",
+            flush=True,
+        )
+        credentials = Credentials(token=access_token)
+
+        print("Building Drive API service...", flush=True)
+        service = build("drive", "v3", credentials=credentials)
+
+        # Test the service with a simple API call
+        print("Testing Drive API service with files.list call...", flush=True)
+        test_result = service.files().list(pageSize=1).execute()
+        print(f"Drive API service test successful: {test_result.keys()}", flush=True)
+
+        return service
+    except Exception as e:
+        error_msg = f"Error creating Drive API service: {e}"
+        print(error_msg, flush=True)
+        print("\nError details:", flush=True)
+        traceback.print_exc()
+        with open("/tmp/colab_error.log", "w") as f:
+            f.write(f"{error_msg}\n")
+            traceback.print_exc(file=f)
+
+        # Provide more detailed troubleshooting advice
+        print("\nTROUBLESHOOTING TIPS:", flush=True)
+        print(
+            "1. Check that the Google Drive API is enabled in your Google Cloud Console",
+            flush=True,
+        )
+        print(
+            "   Visit: https://console.cloud.google.com/apis/library/drive.googleapis.com",
+            flush=True,
+        )
+        print(
+            "2. Verify that your service account has the proper Drive permissions",
+            flush=True,
+        )
+        print("3. Make sure your access token is valid and not expired", flush=True)
+
+        raise
 
 
 def inject_parameters(notebook_path, params):
@@ -192,52 +259,104 @@ def cleanup(drive_service, file_id, temp_file=None):
 
 
 def main():
+    print("Parsing command line arguments...", flush=True)
     args = setup_argparse()
+    print(f"Arguments: {args}", flush=True)
 
     # Get access token from environment
     access_token = os.environ.get("GCP_ACCESS_TOKEN")
     if not access_token:
-        raise ValueError("GCP_ACCESS_TOKEN environment variable is not set")
+        error_msg = "GCP_ACCESS_TOKEN environment variable is not set"
+        print(f"ERROR: {error_msg}", flush=True)
+        with open("/tmp/colab_error.log", "w") as f:
+            f.write(f"{error_msg}\n")
+        raise ValueError(error_msg)
+
+    # Print environment information for debugging
+    print("Environment variables:", flush=True)
+    for key in ["GOOGLE_APPLICATION_CREDENTIALS", "PYTHONPATH", "GITHUB_TOKEN"]:
+        print(f"  {key}: {'SET' if os.environ.get(key) else 'NOT SET'}", flush=True)
+
+    # Print Drive API usage information
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    print(f"Using Shared Drive: {'Yes' if shared_drive_id else 'No'}", flush=True)
+    if shared_drive_id:
+        print(f"Shared Drive ID: {shared_drive_id}", flush=True)
+
+    user_email = os.environ.get("SHARE_WITH_EMAIL")
+    print(f"Sharing with user: {'Yes' if user_email else 'No'}", flush=True)
+    if user_email:
+        print(f"User email: {user_email}", flush=True)
 
     # Inject parameters if needed
+    print(f"Injecting parameters into notebook: {args.notebook_path}", flush=True)
     temp_notebook_path = inject_parameters(args.notebook_path, args.params)
     file_id = None
 
     try:
         # Initialize Drive API
+        print("Initializing Google Drive API service...", flush=True)
         drive_service = get_drive_service(access_token)
+        print("Drive service initialized successfully", flush=True)
 
         try:
             # Upload notebook to Drive
+            print("Starting notebook upload to Drive...", flush=True)
             file_id = upload_to_drive(drive_service, temp_notebook_path)
+            print(f"Upload successful, file_id: {file_id}", flush=True)
         except Exception as e:
-            print(f"Error uploading to Drive: {e}")
-            print("Check if the service account has permission to access Google Drive")
+            error_msg = f"Error uploading to Drive: {e}"
+            print(error_msg, flush=True)
+            print(
+                "Check if the service account has permission to access Google Drive",
+                flush=True,
+            )
+            print("\nError details:", flush=True)
+            traceback.print_exc()
+            with open("/tmp/colab_error.log", "w") as f:
+                f.write(f"{error_msg}\n")
+                traceback.print_exc(file=f)
             raise
 
         # Execute notebook
+        print("Creating Colab VM and executing notebook...", flush=True)
         colab_url = create_colab_vm_and_execute(
             drive_service, file_id, args.machine_type
         )
 
         # Wait for execution to complete
+        print("Waiting for notebook execution to complete...", flush=True)
         execution_complete = wait_for_execution(drive_service, file_id)
 
         # Download the executed notebook
         if execution_complete:
+            print(f"Downloading executed notebook to {args.output}", flush=True)
             download_executed_notebook(drive_service, file_id, args.output)
-            print(f"Notebook execution completed and results saved to {args.output}")
+            print(
+                f"Notebook execution completed and results saved to {args.output}",
+                flush=True,
+            )
         else:
-            print("Notebook execution did not complete within the timeout period.")
-            print(f"You can check the status manually at: {colab_url}")
+            print(
+                "Notebook execution did not complete within the timeout period.",
+                flush=True,
+            )
+            print(f"You can check the status manually at: {colab_url}", flush=True)
 
     except Exception as e:
-        print(f"Error during Colab execution process: {str(e)}")
-        print("Check service account permissions and Google API access")
+        error_msg = f"Error during Colab execution process: {e}"
+        print(error_msg, flush=True)
+        print("Check service account permissions and Google API access", flush=True)
+        print("\nError details:", flush=True)
+        traceback.print_exc()
+        with open("/tmp/colab_error.log", "w") as f:
+            f.write(f"{error_msg}\n")
+            traceback.print_exc(file=f)
         raise
     finally:
         # Clean up resources
         if file_id:
+            print("Cleaning up resources...", flush=True)
             cleanup(
                 drive_service,
                 file_id,
