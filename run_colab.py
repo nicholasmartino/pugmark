@@ -147,25 +147,167 @@ def inject_parameters(notebook_path, params):
 
 def upload_to_drive(drive_service, file_path):
     """Upload the notebook to Google Drive."""
-    print(f"Uploading {file_path} to Google Drive...")
+    print(f"Uploading {file_path} to Google Drive...", flush=True)
+
+    # Get the shared drive ID from environment if provided
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    enable_public_access = (
+        os.environ.get("ENABLE_PUBLIC_ACCESS", "false").lower() == "true"
+    )
+
+    if enable_public_access:
+        print("Public access mode is enabled as a fallback", flush=True)
 
     file_metadata = {
         "name": os.path.basename(file_path),
         "mimeType": "application/x-ipynb+json",
     }
 
+    # If using a shared drive, add it as parent and set supportsAllDrives flags
+    params = {
+        "fields": "id",
+    }
+
+    if shared_drive_id:
+        file_metadata["parents"] = [shared_drive_id]
+        params["supportsAllDrives"] = True
+        print(f"Using Shared Drive with ID: {shared_drive_id}", flush=True)
+
     media = MediaFileUpload(
         file_path, mimetype="application/x-ipynb+json", resumable=True
     )
 
+    print("Creating file in Drive...", flush=True)
     file = (
         drive_service.files()
-        .create(body=file_metadata, media_body=media, fields="id")
+        .create(body=file_metadata, media_body=media, **params)
         .execute()
     )
 
-    print(f"Uploaded file with ID: {file.get('id')}")
-    return file.get("id")
+    file_id = file.get("id")
+    print(f"Uploaded file with ID: {file_id}", flush=True)
+
+    direct_sharing_successful = False
+
+    # Share with a specific user if provided via environment variable
+    user_email = os.environ.get("SHARE_WITH_EMAIL")
+    if (
+        user_email and not shared_drive_id
+    ):  # No need to explicitly share if using a shared drive
+        print(f"Attempting to share with user email: {user_email}", flush=True)
+
+        # First verify if the email is valid
+        try:
+            # Check if @ exists in the email
+            if "@" not in user_email:
+                print(
+                    f"Warning: Email address {user_email} appears to be invalid - missing @ symbol",
+                    flush=True,
+                )
+
+            # Try different sharing approaches
+
+            # Approach 1: Standard permission creation
+            permission = {"type": "user", "role": "writer", "emailAddress": user_email}
+
+            print("Creating permission with standard approach...", flush=True)
+            result = (
+                drive_service.permissions()
+                .create(
+                    fileId=file_id,
+                    body=permission,
+                    fields="id",
+                    sendNotificationEmail=False,
+                )
+                .execute()
+            )
+
+            print(
+                f"Standard sharing successful. Permission ID: {result.get('id')}",
+                flush=True,
+            )
+            direct_sharing_successful = True
+
+            # Generate Drive UI URL for direct access
+            print("Generating access URLs...", flush=True)
+            drive_ui_url = f"https://drive.google.com/file/d/{file_id}/view"
+            colab_url = f"https://colab.research.google.com/drive/{file_id}"
+
+            print(f"\n==== IMPORTANT: ACCESS LINKS ====", flush=True)
+            print(f"Google Drive direct link: {drive_ui_url}", flush=True)
+            print(f"Google Colab direct link: {colab_url}", flush=True)
+            print(f"File has been shared with: {user_email}", flush=True)
+            print(f"===============================\n", flush=True)
+
+            # Verify sharing worked by checking permissions
+            print("Verifying file permissions...", flush=True)
+            permissions = (
+                drive_service.permissions()
+                .list(fileId=file_id, fields="permissions(id,emailAddress,role,type)")
+                .execute()
+            )
+
+            print("Current permissions:", flush=True)
+            for p in permissions.get("permissions", []):
+                print(
+                    f"  - {p.get('emailAddress', 'N/A')} ({p.get('role')})", flush=True
+                )
+
+        except Exception as e:
+            print(f"Error sharing file with user: {str(e)}", flush=True)
+            print("Detailed error info:", flush=True)
+            traceback.print_exc()
+
+    # If direct sharing failed or wasn't attempted, and public access is enabled
+    if (not direct_sharing_successful or not user_email) and enable_public_access:
+        print("\nAttempting to make file publicly accessible with link...", flush=True)
+
+        try:
+            # Make the file accessible to anyone with the link
+            permission = {
+                "type": "anyone",
+                "role": "writer",
+                "allowFileDiscovery": False,
+            }
+
+            drive_service.permissions().create(
+                fileId=file_id, body=permission, fields="id"
+            ).execute()
+
+            print("File made accessible to anyone with the link", flush=True)
+            print(f"\n==== IMPORTANT: PUBLIC ACCESS LINKS ====", flush=True)
+            print(
+                f"Google Drive link: https://drive.google.com/file/d/{file_id}/view",
+                flush=True,
+            )
+            print(
+                f"Google Colab link: https://colab.research.google.com/drive/{file_id}",
+                flush=True,
+            )
+            print(
+                f"Note: These links allow anyone with the link to access the file",
+                flush=True,
+            )
+            print(f"===============================\n", flush=True)
+
+        except Exception as e2:
+            print(f"Public access sharing failed: {str(e2)}", flush=True)
+            traceback.print_exc()
+            print("\nTROUBLESHOOTING:", flush=True)
+            print(
+                "1. Make sure the Google Drive API is enabled: https://console.cloud.google.com/apis/library/drive.googleapis.com",
+                flush=True,
+            )
+            print(
+                "2. Check that your service account has the necessary permissions",
+                flush=True,
+            )
+            print(
+                "3. Verify that the USER_EMAIL secret is correctly set in your repository settings",
+                flush=True,
+            )
+
+    return file_id
 
 
 def create_colab_vm_and_execute(drive_service, file_id, machine_type):
