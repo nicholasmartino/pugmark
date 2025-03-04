@@ -193,30 +193,56 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
     return colab_url
 
 
-def wait_for_execution(drive_service, file_id, timeout_minutes=60):
+def wait_for_execution(drive_service, file_id, timeout_minutes=180):
     """Wait for the notebook execution to complete."""
-    print("Waiting for notebook execution to complete...")
+    print("Waiting for notebook execution to complete...", flush=True)
+    print(
+        f"Colab execution will continue for up to {timeout_minutes} minutes.",
+        flush=True,
+    )
+    print("The notebook will be downloaded when execution completes.", flush=True)
+    print("You can monitor execution via the Colab URL shown above.", flush=True)
+
+    # Check if we're using a shared drive
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    params = {}
+    if shared_drive_id:
+        params["supportsAllDrives"] = True
 
     start_time = time.time()
     timeout_seconds = timeout_minutes * 60
 
+    # Check occasionally to see if execution is complete
+    check_interval_minutes = 5  # Only check every 5 minutes
+
+    # Initial wait to let Colab start up
+    time.sleep(60)
+
     while time.time() - start_time < timeout_seconds:
         # Check file metadata for execution status
-        # Again, this is a simplified approach
         file = (
-            drive_service.files().get(fileId=file_id, fields="appProperties").execute()
+            drive_service.files()
+            .get(fileId=file_id, fields="appProperties", **params)
+            .execute()
         )
 
         app_properties = file.get("appProperties", {})
         if "colab-execution-complete" in app_properties:
-            print("Execution complete!")
+            print("Execution complete!", flush=True)
             return True
 
-        print("Execution in progress... (waiting 30 seconds)")
-        time.sleep(30)
+        # Calculate elapsed time and print brief status
+        elapsed_minutes = int((time.time() - start_time) / 60)
+        print(
+            f"Execution in progress... ({elapsed_minutes} minutes elapsed)", flush=True
+        )
+
+        # Wait for next check interval
+        time.sleep(check_interval_minutes * 60)
 
     print(
-        f"Timeout after {timeout_minutes} minutes. Execution may still be in progress."
+        f"Timeout after {timeout_minutes} minutes. Execution may still be in progress.",
+        flush=True,
     )
     return False
 
