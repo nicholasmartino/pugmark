@@ -35,7 +35,7 @@ echo "Repository URL: $REPO_URL"
 echo "==========================================="
 
 # Install required Python packages
-pip install google-cloud-aiplatform google-cloud-storage google-cloud-notebooks
+pip install google-cloud-aiplatform google-cloud-storage google-cloud-notebooks<1.13.0
 
 # Execute the Python script
 python scripts/vertex_workbench_execute.py \
