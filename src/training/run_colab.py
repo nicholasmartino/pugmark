@@ -91,27 +91,45 @@ print(f"Current directory: {os.getcwd()}", flush=True)
 
 
 def setup_argparse():
-    """Setup command line arguments."""
-    parser = argparse.ArgumentParser(description="Run a notebook on Google Colab")
-    parser.add_argument(
-        "notebook_path", type=str, help="Path to the notebook to execute"
+    """Setup argument parsing with backward compatibility."""
+    parser = argparse.ArgumentParser(
+        description="Upload a notebook to Google Drive and execute it on Colab"
     )
-    parser.add_argument(
-        "--output", type=str, required=True, help="Path to save the executed notebook"
-    )
-    parser.add_argument(
-        "--params",
-        type=str,
-        help="Comma-separated key=value pairs to inject as parameters",
-    )
+
+    # Required positional argument for notebook path
+    parser.add_argument("notebook_path", help="Path to the notebook file to execute")
+
+    # Common parameters for both new and old interfaces
     parser.add_argument(
         "--machine-type",
-        type=str,
-        default="CPU",
         choices=["CPU", "GPU", "TPU"],
-        help="Machine type to use for execution",
+        default="GPU",
+        help="Colab machine type (CPU, GPU, TPU)",
     )
-    parser.add_argument("--no-browser", action="store_true", help="Do not open browser")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=180,
+        help="Timeout in minutes for notebook execution",
+    )
+
+    # New interface parameters
+    parser.add_argument(
+        "--checkpoint", help="Path to the checkpoint directory for training"
+    )
+    parser.add_argument("--epochs", type=int, help="Number of epochs for training")
+
+    # Old interface parameters (for backward compatibility)
+    parser.add_argument(
+        "--params",
+        help="Parameters to inject into the notebook in format PARAM1=VALUE1,PARAM2=VALUE2 (legacy)",
+    )
+    parser.add_argument("--output", help="Path to save executed notebook (legacy)")
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Don't open browser to check execution (legacy)",
+    )
 
     return parser.parse_args()
 
@@ -689,33 +707,28 @@ def main():
     if not ALL_DEPENDENCIES_INSTALLED:
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(
-        description="Upload a notebook to Google Drive and execute it on Colab"
-    )
-    parser.add_argument("notebook_path", help="Path to the notebook file to execute")
-    parser.add_argument(
-        "--checkpoint", help="Path to the checkpoint directory for training"
-    )
-    parser.add_argument("--epochs", type=int, help="Number of epochs for training")
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=180,
-        help="Timeout in minutes for notebook execution",
-    )
-    parser.add_argument(
-        "--machine-type",
-        choices=["CPU", "GPU", "TPU"],
-        default="GPU",
-        help="Colab machine type (CPU, GPU, TPU)",
-    )
-    args = parser.parse_args()
+    args = setup_argparse()
 
     print(f"Notebook: {args.notebook_path}")
+
+    # Process and map old-style parameters to new ones
+    if args.params:
+        print(f"Processing legacy parameters: {args.params}")
+        # Extract EPOCHS from params string if present
+        if "EPOCHS=" in args.params:
+            epochs_match = re.search(r"EPOCHS=(\d+)", args.params)
+            if epochs_match and not args.epochs:
+                args.epochs = int(epochs_match.group(1))
+                print(f"  - Extracted epochs: {args.epochs}")
+
+        # You could extract other parameters here if needed
+
     print(f"Checkpoint: {args.checkpoint}")
     print(f"Epochs: {args.epochs}")
     print(f"Timeout: {args.timeout} minutes")
     print(f"Machine type: {args.machine_type}")
+    if args.output:
+        print(f"Output path (legacy): {args.output}")
 
     # Set up environment variables for notebook execution
     if args.checkpoint:
@@ -753,6 +766,15 @@ def main():
             file_id,
             timeout_minutes=args.timeout,
         )
+
+        # Handle downloading the executed notebook for backward compatibility
+        if args.output and status != "token_expired":
+            try:
+                print(f"Downloading executed notebook to {args.output}...")
+                download_from_drive(drive_service, file_id, args.output)
+                print(f"Notebook saved to {args.output}")
+            except Exception as e:
+                print(f"Failed to download notebook: {str(e)}")
 
         # Handle different return values
         if status == "token_expired":
