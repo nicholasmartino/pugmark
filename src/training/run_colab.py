@@ -507,6 +507,12 @@ def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=
     start_time = time.time()
     timeout_seconds = timeout_minutes * 60
 
+    # Check if we're using a shared drive
+    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
+    params = {}
+    if shared_drive_id:
+        params["supportsAllDrives"] = True
+
     # Keep track of last observed output markers
     last_cell_executed = None
     last_seen_output = None
@@ -524,120 +530,152 @@ def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=
             return False
 
         try:
-            # Get the current notebook content
-            request = service.files().export(fileId=file_id, mimeType="text/html")
-            notebook_html = request.execute().decode("utf-8")
+            # Get the current notebook content using get_media instead of export
+            request = service.files().get_media(fileId=file_id, **params)
+            notebook_content = request.execute().decode("utf-8")
 
-            # Check for distinct markers that show up in notebook output cells
-            completed_marker = "NOTEBOOK EXECUTION COMPLETED" in notebook_html
-            training_finished_marker = "Training finished in" in notebook_html
+            # Parse the notebook content
+            try:
+                notebook = nbformat.reads(notebook_content, as_version=4)
 
-            # Look for cell execution markers like: "▼▼▼ EXECUTING CELL 5/20 ▼▼▼"
-            cell_execution_matches = re.findall(
-                r"▼▼▼ EXECUTING CELL (\d+)/(\d+) ▼▼▼", notebook_html
-            )
-            cell_completion_matches = re.findall(
-                r"▲▲▲ CELL (\d+)/(\d+) COMPLETED", notebook_html
-            )
+                # Extract output from all cells
+                cell_outputs = []
+                executed_cells = 0
 
-            # Count status messages to understand progress
-            colab_status_count = notebook_html.count("[COLAB_STATUS]")
-            colab_log_count = notebook_html.count("[COLAB_LOG]")
+                for i, cell in enumerate(notebook.cells):
+                    if (
+                        cell.cell_type == "code"
+                        and hasattr(cell, "outputs")
+                        and cell.outputs
+                    ):
+                        executed_cells += 1
 
-            # Extract the most recent output for debugging
-            status_pattern = (
-                r"\[COLAB_STATUS\].*?:(.+?)(?=\[COLAB_STATUS\]|\[COLAB_LOG\]|$)"
-            )
-            status_matches = re.findall(status_pattern, notebook_html, re.DOTALL)
+                        # Extract all text outputs
+                        for output in cell.outputs:
+                            if output.output_type == "stream" and "text" in output:
+                                cell_outputs.append(output["text"])
 
-            current_cell = None
-            total_cells = None
+                # Convert all outputs to a single string for easier searching
+                all_output = "\n".join(cell_outputs)
 
-            if cell_execution_matches:
-                # Get the most recent cell being executed
-                current_cell, total_cells = map(int, cell_execution_matches[-1])
+                # Check for distinct markers that show up in notebook output cells
+                completed_marker = "NOTEBOOK EXECUTION COMPLETED" in all_output
+                training_finished_marker = "Training finished in" in all_output
 
-            if cell_completion_matches:
-                # Get the most recently completed cell
-                last_completed, _ = map(int, cell_completion_matches[-1])
-                if last_completed != last_cell_executed:
-                    last_cell_executed = last_completed
-                    print(
-                        f"✓ Cell {last_completed}/{total_cells if total_cells else '?'} completed"
-                    )
+                # Look for cell execution markers like: "▼▼▼ EXECUTING CELL 5/20 ▼▼▼"
+                import re
 
-            # Print detailed progress information every 2 minutes or when significant changes happen
-            current_time = time.time()
-            if current_time - last_debug_output_time > 120 or (  # Every 2 minutes
-                current_cell and last_cell_executed != current_cell
-            ):
+                cell_execution_matches = re.findall(
+                    r"▼▼▼ EXECUTING CELL (\d+)/(\d+) ▼▼▼", all_output
+                )
+                cell_completion_matches = re.findall(
+                    r"▲▲▲ CELL (\d+)/(\d+) COMPLETED", all_output
+                )
 
-                print("\n📊 Notebook Execution Status:")
-                print(f"├─ Elapsed time: {elapsed_seconds/60:.1f} minutes")
+                # Count status messages to understand progress
+                colab_status_count = all_output.count("[COLAB_STATUS]")
+                colab_log_count = all_output.count("[COLAB_LOG]")
 
-                if current_cell and total_cells:
-                    progress_percent = (current_cell / total_cells) * 100
-                    print(
-                        f"├─ Progress: Cell {current_cell}/{total_cells} ({progress_percent:.1f}%)"
-                    )
-                else:
-                    print(f"├─ Status messages detected: {colab_status_count}")
-                    print(f"├─ Log messages detected: {colab_log_count}")
+                # Extract the most recent output for debugging
+                status_pattern = (
+                    r"\[COLAB_STATUS\].*?:(.+?)(?=\[COLAB_STATUS\]|\[COLAB_LOG\]|$)"
+                )
+                status_matches = re.findall(status_pattern, all_output, re.DOTALL)
 
-                # Show some recent output for debugging
-                if status_matches:
-                    recent_status = status_matches[-1].strip()
-                    # Only print if it's different from last time
-                    if recent_status != last_seen_output:
-                        print(f"├─ Recent status: {recent_status}")
-                        last_seen_output = recent_status
+                current_cell = None
+                total_cells = None
 
-                # Extract any visible output
-                output_pattern = r"<pre.*?>(.*?)</pre>"
-                output_matches = re.findall(output_pattern, notebook_html, re.DOTALL)
-                if output_matches:
-                    # Get the last chunk of output, clean it up and truncate
-                    recent_output = output_matches[-1].strip()
-                    if len(recent_output) > 500:
-                        recent_output = recent_output[-500:] + "..."
-                    print(f"└─ Output preview: \n{recent_output}")
+                if cell_execution_matches:
+                    # Get the most recent cell being executed
+                    current_cell, total_cells = map(int, cell_execution_matches[-1])
 
-                last_debug_output_time = current_time
+                if cell_completion_matches:
+                    # Get the most recently completed cell
+                    last_completed, _ = map(int, cell_completion_matches[-1])
+                    if last_completed != last_cell_executed:
+                        last_cell_executed = last_completed
+                        print(
+                            f"✓ Cell {last_completed}/{total_cells if total_cells else '?'} completed"
+                        )
 
-            # Check for authentication errors or token expiration
-            auth_error_markers = [
-                "not have permission to get",
-                "Authentication Required",
-                "authenticate to access",
-                "Token has been expired",
-                "credentials have expired",
-            ]
+                # Print detailed progress information every 2 minutes or when significant changes happen
+                current_time = time.time()
+                if current_time - last_debug_output_time > 120 or (  # Every 2 minutes
+                    current_cell and last_cell_executed != current_cell
+                ):
 
-            for marker in auth_error_markers:
-                if marker in notebook_html:
-                    print("\n🚨 Authentication error detected!")
-                    print(
-                        "The authentication token may have expired after 60+ minutes of execution."
-                    )
-                    print("This is a known limitation when running long training jobs.")
-                    print("The notebook execution may have been interrupted.")
-                    print(
-                        f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
-                    )
-                    return "token_expired"
+                    print("\n📊 Notebook Execution Status:")
+                    print(f"├─ Elapsed time: {elapsed_seconds/60:.1f} minutes")
+                    print(f"├─ Executed cells: {executed_cells}")
 
-            # Check for successful completion
-            if completed_marker or training_finished_marker:
-                print("\n✅ Notebook execution completed successfully!")
-                if training_finished_marker:
-                    # Try to extract training time
-                    training_time_pattern = r"Training finished in (.+?)(?:\.|$)"
-                    training_time_match = re.search(
-                        training_time_pattern, notebook_html
-                    )
-                    if training_time_match:
-                        print(f"Training completed in: {training_time_match.group(1)}")
-                return True
+                    if current_cell and total_cells:
+                        progress_percent = (current_cell / total_cells) * 100
+                        print(
+                            f"├─ Progress: Cell {current_cell}/{total_cells} ({progress_percent:.1f}%)"
+                        )
+                    else:
+                        print(f"├─ Status messages detected: {colab_status_count}")
+                        print(f"├─ Log messages detected: {colab_log_count}")
+
+                    # Show some recent output for debugging
+                    if status_matches:
+                        recent_status = status_matches[-1].strip()
+                        # Only print if it's different from last time
+                        if recent_status != last_seen_output:
+                            print(f"├─ Recent status: {recent_status}")
+                            last_seen_output = recent_status
+
+                    # Show the last chunk of output
+                    if cell_outputs:
+                        # Get the last chunk of output, clean it up and truncate
+                        recent_output = cell_outputs[-1].strip()
+                        if len(recent_output) > 500:
+                            recent_output = recent_output[-500:] + "..."
+                        print(f"└─ Output preview: \n{recent_output}")
+
+                    last_debug_output_time = current_time
+
+                # Check for authentication errors or token expiration
+                auth_error_markers = [
+                    "not have permission to get",
+                    "Authentication Required",
+                    "authenticate to access",
+                    "Token has been expired",
+                    "credentials have expired",
+                ]
+
+                for marker in auth_error_markers:
+                    if marker in all_output:
+                        print("\n🚨 Authentication error detected!")
+                        print(
+                            "The authentication token may have expired after 60+ minutes of execution."
+                        )
+                        print(
+                            "This is a known limitation when running long training jobs."
+                        )
+                        print("The notebook execution may have been interrupted.")
+                        print(
+                            f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
+                        )
+                        return "token_expired"
+
+                # Check for successful completion
+                if completed_marker or training_finished_marker:
+                    print("\n✅ Notebook execution completed successfully!")
+                    if training_finished_marker:
+                        # Try to extract training time
+                        training_time_pattern = r"Training finished in (.+?)(?:\.|$)"
+                        training_time_match = re.search(
+                            training_time_pattern, all_output
+                        )
+                        if training_time_match:
+                            print(
+                                f"Training completed in: {training_time_match.group(1)}"
+                            )
+                    return True
+            except Exception as parse_error:
+                print(f"Error parsing notebook: {parse_error}")
+                print("The notebook might not be fully processed by Colab yet.")
 
             # Wait before checking again
             time.sleep(poll_interval_seconds)
