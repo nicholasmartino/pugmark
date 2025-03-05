@@ -20,7 +20,7 @@ chmod +x scripts/gcloud_submit_job.sh
 ./setup_gcloud.sh
 ```
 
-### Option 2: Google Colab Notebook (Recommended)
+### Option 2: Google Colab Notebook
 
 1. Open the Colab notebook in the `notebooks` directory:
    - [train_footprints.ipynb](notebooks/train_footprints.ipynb)
@@ -29,9 +29,26 @@ chmod +x scripts/gcloud_submit_job.sh
    - Click the "Open in Colab" button at the top of the notebook
    - The notebook will clone the repository and set up the environment
 
-3. Automated Training via GitHub Actions
-   - Any changes to the notebook or training code in the `src/training` directory will trigger automatic execution through GitHub Actions
-   - Executed notebooks are saved as artifacts and can be downloaded from the Actions tab
+### Option 3: Automated Training via GitHub Actions (Recommended)
+
+The project supports two methods for automated training through GitHub Actions:
+
+#### Vertex AI Training (Recommended)
+- Uses Google Cloud's Vertex AI platform for reliable GPU training
+- Provides better monitoring and more stable execution
+- Executes notebooks with full GPU acceleration
+- No token expiration issues during long training runs
+- Run the workflow from the Actions tab or trigger automatically on pushes to master
+
+#### Colab GPU Training (Deprecated)
+- The Colab-based training workflow is now deprecated
+- While still functional, it may experience limitations with token expiration
+- Will be removed in a future release
+
+To use the automated training:
+- Any changes to the notebook or training code in the `src/training` directory will trigger automatic execution
+- Executed notebooks are saved as artifacts and can be downloaded from the Actions tab
+- You can also manually trigger training with custom parameters from the Actions tab
 
 ## Results
 

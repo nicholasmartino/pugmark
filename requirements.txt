@@ -147,3 +147,7 @@ wheel==0.45.1
 wrapt==1.17.2
 xxhash==3.5.0
 yarl==1.18.3
+google-cloud-aiplatform>=1.36.0
+google-cloud-storage>=2.10.0
+nbformat>=5.9.0
+papermill>=2.4.0

@@ -1,4 +1,4 @@
-name: "Execute Training on Colab GPU with custom script"
+name: "[DEPRECATED] Execute Training on Colab GPU with custom script"
 
 on:
   workflow_dispatch:  # Allow manual trigger
@@ -8,22 +8,50 @@ on:
         required: false
         default: '50'
         type: string
-  push:
-    branches:
-      - master
-    paths:
-      - "notebooks/train_footprints.ipynb"
-      - "src/training/**"
-      - ".github/workflows/colab-gpu-training.yml"
+      use_new_workflow:
+        description: 'Use the new Vertex AI workflow instead (recommended)'
+        required: false
+        default: true
+        type: boolean
+
+# Add a comment block explaining the deprecation
+# -----------------------------------------------
+# This workflow is deprecated and will be removed in a future release.
+# Please use the new vertex-ai-training.yml workflow instead, which offers more reliable
+# GPU training using Vertex AI Workbench. The new workflow provides better monitoring,
+# more stable execution, and avoids token expiration issues.
+# -----------------------------------------------
 
 jobs:
+  Redirect:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.use_new_workflow == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Redirect to new workflow
+        run: |
+          echo "⚠️ This workflow is deprecated. Redirecting to the new Vertex AI workflow..."
+          gh workflow run vertex-ai-training.yml -f epochs=${{ github.event.inputs.epochs || '50' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
   Colab:
     runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.use_new_workflow != 'true' }}
     permissions:
       contents: read
       id-token: write
 
     steps:
+      - name: Show deprecation warning
+        run: |
+          echo "⚠️ WARNING: You are using a deprecated workflow."
+          echo "⚠️ Please transition to the new vertex-ai-training.yml workflow for better reliability."
+          echo "⚠️ This workflow will be removed in a future release."
+          sleep 5  # Give time to read the warning
+
       - name: Checkout code
         uses: actions/checkout@v4
       

@@ -1,0 +1,93 @@
+name: "Execute Training on Vertex AI Workbench"
+
+on:
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      epochs:
+        description: 'Number of training epochs'
+        required: false
+        default: '50'
+        type: string
+  push:
+    branches:
+      - master
+    paths:
+      - "notebooks/train_footprints.ipynb"
+      - "src/training/**"
+      - ".github/workflows/vertex-ai-training.yml"
+
+jobs:
+  VertexAI:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2.1.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          token_format: access_token
+          create_credentials_file: true
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-cloud-aiplatform google-cloud-storage nbformat papermill
+      
+      - name: Create output directory
+        run: mkdir -p notebooks/output
+        
+      - name: Set script permissions
+        run: |
+          chmod +x src/training/run_vertex.py
+      
+      - name: Execute notebook on Vertex AI Workbench
+        run: |
+          # Create timestamp for unique files
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          OUTPUT_PATH="notebooks/output/train_footprints_${TIMESTAMP}.ipynb"
+          
+          echo "Executing training notebook with ${{ github.event.inputs.epochs || '50' }} epochs on Vertex AI..."
+          
+          # Set environment variables
+          export PYTHONUNBUFFERED=1
+          
+          # Add debug prints to check environment
+          echo "Current directory: $(pwd)"
+          echo "Python version: $(python --version)"
+          echo "Script exists: $(ls -la src/training/run_vertex.py)"
+          
+          # Execute using our Vertex AI script with error trapping
+          set -x  # Print commands before execution
+          python -u src/training/run_vertex.py \
+            --notebook notebooks/train_footprints.ipynb \
+            --params "EPOCHS=${{ github.event.inputs.epochs || '50' }}" \
+            --output "$OUTPUT_PATH" \
+            --region us-central1 \
+            --machine-type n1-standard-4 \
+            --accelerator-type NVIDIA_TESLA_T4 \
+            --accelerator-count 1 || { echo "Script execution failed with code $?"; exit 1; }
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+          PYTHONPATH: ${{ github.workspace }}
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+          
+      - name: Upload notebook output
+        uses: actions/upload-artifact@v4
+        with:
+          name: vertex-ai-results
+          path: notebooks/output/
+          retention-days: 7 
