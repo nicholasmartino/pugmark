@@ -1,6 +1,14 @@
 name: "Vertex AI Workbench Training"
 
 on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'src/training/**'
+      - 'scripts/vertex_workbench_execute.py'
+      - 'scripts/run_on_workbench.sh'
   workflow_dispatch:
     inputs:
       instance_name:
@@ -117,11 +125,11 @@ jobs:
           GCP_PROJECT_ID: ${{ env.PROJECT_ID }}
           REGION: ${{ env.REGION }}
           ZONE: ${{ env.ZONE }}
-          WORKBENCH_INSTANCE: ${{ github.event.inputs.instance_name }}
-          CREATE_INSTANCE: ${{ github.event.inputs.create_instance }}
-          MACHINE_TYPE: ${{ github.event.inputs.machine_type }}
-          ACCELERATOR_TYPE: ${{ github.event.inputs.accelerator_type }}
-          ACCELERATOR_COUNT: ${{ github.event.inputs.accelerator_count }}
-          DELETE_AFTER_TRAINING: ${{ github.event.inputs.delete_after_training }}
-          EPOCHS: ${{ github.event.inputs.epochs }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size }} 
+          WORKBENCH_INSTANCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.instance_name || format('pugmark-{0}', github.run_id) }}
+          CREATE_INSTANCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.create_instance || 'true' }}
+          MACHINE_TYPE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.machine_type || 'n1-standard-8' }}
+          ACCELERATOR_TYPE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.accelerator_type || 'NVIDIA_TESLA_T4' }}
+          ACCELERATOR_COUNT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.accelerator_count || '1' }}
+          DELETE_AFTER_TRAINING: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.delete_after_training || 'true' }}
+          EPOCHS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.epochs || '100' }}
+          BATCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.batch_size || '1' }} 

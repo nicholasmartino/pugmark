@@ -113,19 +113,24 @@ This project supports running training directly on a Vertex AI Workbench instanc
 
 ### Running the Training Job
 
-1. Go to the "Actions" tab in your GitHub repository
-2. Select the "Vertex AI Workbench Training" workflow
-3. Click "Run workflow"
-4. Configure the following parameters:
-   - **Instance Name**: Name to use for the Workbench instance
-   - **Create Instance**: Whether to create a new instance if it doesn't exist (default: true)
-   - **Machine Type**: VM machine type for the instance
-   - **Accelerator Type**: GPU type to use
-   - **Accelerator Count**: Number of GPUs
-   - **Delete After Training**: Whether to delete the instance after training completes
-   - **Epochs**: Number of training epochs (optional)
-   - **Batch Size**: Training batch size (optional)
-5. Click "Run workflow" to start the training job
+1. **Automatic Training**: The training job runs automatically when:
+   - Changes are pushed to the `main` or `master` branch
+   - The changes include files in the `src/training` directory or workflow scripts
+
+2. **Manual Execution**:
+   - Go to the "Actions" tab in your GitHub repository
+   - Select the "Vertex AI Workbench Training" workflow
+   - Click "Run workflow"
+   - Configure the following parameters:
+     - **Instance Name**: Name to use for the Workbench instance
+     - **Create Instance**: Whether to create a new instance if it doesn't exist (default: true)
+     - **Machine Type**: VM machine type for the instance
+     - **Accelerator Type**: GPU type to use
+     - **Accelerator Count**: Number of GPUs
+     - **Delete After Training**: Whether to delete the instance after training completes
+     - **Epochs**: Number of training epochs (optional)
+     - **Batch Size**: Training batch size (optional)
+   - Click "Run workflow" to start the training job
 
 ### How It Works
 
