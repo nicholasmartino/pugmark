@@ -737,11 +737,24 @@ def main():
         os.environ["EPOCHS"] = str(args.epochs)
 
     # Setup Google Drive API
-    creds = authenticate()
-    drive_service = build("drive", "v3", credentials=creds)
+    creds, drive_service = authenticate()
+
+    # Create a temporary notebook with parameters if needed
+    notebook_to_upload = args.notebook_path
+    if args.params:
+        print(f"Injecting parameters into notebook: {args.params}")
+        notebook_to_upload = inject_parameters(args.notebook_path, args.params)
 
     # Upload the notebook to Google Drive
-    file_id = upload_to_drive(drive_service, args.notebook_path)
+    file_id = upload_to_drive(drive_service, notebook_to_upload)
+
+    # Clean up temporary notebook if created
+    if notebook_to_upload != args.notebook_path:
+        try:
+            os.remove(notebook_to_upload)
+            print(f"Removed temporary notebook: {notebook_to_upload}")
+        except Exception as e:
+            print(f"Warning: Could not remove temporary notebook: {e}")
 
     if not file_id:
         print("Failed to upload notebook to Google Drive.")
