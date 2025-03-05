@@ -696,10 +696,25 @@ def main():
 
             # Download results
             print("\n=== STEP 4: Downloading executed notebook ===", flush=True)
-            download_from_drive(drive_service, file_id, args.output)
+            download_success = download_from_drive(drive_service, file_id, args.output)
 
-            if execution_complete:
+            if execution_complete is True:
                 print("\n✅ Notebook execution completed successfully!", flush=True)
+            elif execution_complete == "token_expired":
+                print(
+                    "\n⚠️ Authentication token expired, but notebook execution continues on Colab.",
+                    flush=True,
+                )
+                print(
+                    "   The notebook was downloaded in its current state.", flush=True
+                )
+                print(
+                    "   Check the notebook manually via the Colab URL for final results.",
+                    flush=True,
+                )
+                # Still consider this a successful run since the notebook is still executing
+                if download_success:
+                    execution_complete = True
             else:
                 print("\n⚠️ Notebook execution timed out or had errors.", flush=True)
                 print(
