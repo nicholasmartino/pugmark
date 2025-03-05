@@ -4,278 +4,213 @@ This file contains the code that will be injected into notebooks for automation 
 """
 
 LOG_STREAMING_CELL = """
-# Cell for streaming logs
+# Cell for direct output streaming
 import io
 import sys
 import time
 import threading
 import json
-import google.colab
-from google.colab import auth
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import os
+import datetime
 
-# Log file name - this will be used to stream logs back to the CI process
-LOG_FILE_NAME = "colab_execution_log.txt"
-STATUS_FILE_NAME = "colab_execution_status.json"
-
-# Create files in Drive to store logs and status
-def setup_log_streaming():
-    # Authenticate for Drive access
-    auth.authenticate_user()
-    
-    # Get parent folder ID (same as this notebook)
-    drive_service = build('drive', 'v3', cache_discovery=False)
-    file_info = drive_service.files().get(
-        fileId=google.colab.drive.get_file_id(),
-        fields='parents'
-    ).execute()
-    
-    parent_id = file_info.get('parents', ['root'])[0]
-    
-    # Create log file in the same folder
-    file_metadata = {
-        'name': LOG_FILE_NAME,
-        'mimeType': 'text/plain',
-        'parents': [parent_id]
-    }
-    
-    log_file = drive_service.files().create(
-        body=file_metadata,
-        fields='id'
-    ).execute()
-    
-    log_file_id = log_file.get('id')
-    print(f"Created log file with ID: {log_file_id}")
-    
-    # Create status file for cell execution progress
-    status_metadata = {
-        'name': STATUS_FILE_NAME,
-        'mimeType': 'application/json',
-        'parents': [parent_id]
-    }
-    
-    status_file = drive_service.files().create(
-        body=status_metadata,
-        fields='id'
-    ).execute()
-    
-    status_file_id = status_file.get('id')
-    print(f"Created status file with ID: {status_file_id}")
-    
-    # Initialize status file
-    init_status = {
-        'total_cells': 0,  # Will be updated when execution starts
-        'current_cell': 0,
-        'status': 'initializing',
-        'last_update': time.time(),
-        'error': None
-    }
-    
-    update_status_file(drive_service, status_file_id, init_status)
-    
-    return log_file_id, status_file_id, drive_service
-
-# Function to update status file
-def update_status_file(drive_service, file_id, status_data):
-    media = MediaIoBaseUpload(
-        io.BytesIO(json.dumps(status_data).encode()),
-        mimetype='application/json',
-        resumable=True
-    )
-    
-    drive_service.files().update(
-        fileId=file_id,
-        media_body=media
-    ).execute()
-
-# Setup log streaming
-log_file_id, status_file_id, log_drive_service = setup_log_streaming()
-
-# Redirect stdout to also write to the log file
-class LogRedirector:
-    def __init__(self, file_id, drive_service):
+# Set up custom logging that ensures output is visible and flushed immediately
+class EnhancedOutput:
+    def __init__(self):
         self.terminal = sys.stdout
-        self.file_id = file_id
-        self.drive_service = drive_service
-        self.buffer = io.StringIO()
-        self.last_upload = time.time()
-        self.upload_interval = 3  # Upload every 3 seconds
+        self.last_flush = time.time()
+        self.buffer = ""
+        self.flush_interval = 0.5  # Flush every 0.5 seconds
         
     def write(self, message):
         self.terminal.write(message)
-        self.buffer.write(message)
+        self.buffer += message
         
-        # Upload if it's been more than upload_interval seconds
-        if time.time() - self.last_upload > self.upload_interval:
+        # Check if we should flush
+        current_time = time.time()
+        if current_time - self.last_flush > self.flush_interval:
             self.flush()
-            
+    
     def flush(self):
-        content = self.buffer.getvalue()
-        if content:
-            try:
-                # Upload to the log file
-                media = MediaIoBaseUpload(
-                    io.BytesIO(content.encode()),
-                    mimetype='text/plain',
-                    resumable=True
-                )
-                
-                self.drive_service.files().update(
-                    fileId=self.file_id,
-                    media_body=media
-                ).execute()
-                
-                self.last_upload = time.time()
-                self.buffer = io.StringIO()
-            except Exception as e:
-                self.terminal.write(f"Error uploading logs: {e}\\n")
+        if self.buffer:
+            # Force Python to flush output
+            self.terminal.flush()
+            self.last_flush = time.time()
+            self.buffer = ""
 
-# Start log redirection
-log_redirector = LogRedirector(log_file_id, log_drive_service)
-sys.stdout = log_redirector
+# Replace stdout with our enhanced version
+sys.stdout = EnhancedOutput()
 
-# Update status object
-notebook_status = {
-    'total_cells': 0,  # Will be set by autorun cell
-    'current_cell': 0,
-    'status': 'ready',
-    'last_update': time.time(),
-    'error': None
+# Global execution status
+execution_status = {
+    "start_time": time.time(),
+    "current_cell": 0,
+    "total_cells": 0,
+    "current_status": "initializing",
+    "last_update": time.time(),
+    "error": None
 }
 
-# Start a background thread to periodically flush logs
-def periodic_flush():
+# Function to print status updates that will be visible in GitHub Actions logs
+def log_status(message, important=False):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if important:
+        separator = "=" * 40
+        print(f"\\n{separator}")
+        print(f"[STATUS] {timestamp}: {message}")
+        print(f"{separator}\\n")
+    else:
+        print(f"[LOG] {timestamp}: {message}")
+    sys.stdout.flush()
+
+# Background thread to periodically print status updates
+def status_reporter():
     while True:
-        time.sleep(5)
         try:
-            print("--- PERIODIC LOG UPDATE ---")
-            sys.stdout.flush()
+            elapsed = time.time() - execution_status["start_time"]
+            current = execution_status["current_cell"]
+            total = execution_status["total_cells"]
+            status = execution_status["current_status"]
             
-            # Also update status to show we're still alive
-            notebook_status['last_update'] = time.time()
-            update_status_file(log_drive_service, status_file_id, notebook_status)
+            if total > 0:
+                progress = f"{current}/{total} cells ({current/total*100:.1f}%)"
+            else:
+                progress = "Calculating..."
+                
+            log_status(f"Status: {status} | Progress: {progress} | Running for: {elapsed/60:.1f} minutes")
+            
+            # Update last_update to show we're still alive
+            execution_status["last_update"] = time.time()
             
         except Exception as e:
-            print(f"Error in periodic flush: {e}")
+            print(f"Error in status reporter: {str(e)}")
         
-threading.Thread(target=periodic_flush, daemon=True).start()
+        time.sleep(30)  # Report status every 30 seconds
 
-print(f"LOG STREAMING SETUP COMPLETE - Logs will be written to file ID: {log_file_id}")
-print(f"STATUS TRACKING SETUP COMPLETE - Status will be written to file ID: {status_file_id}")
+# Start the status reporting thread
+threading.Thread(target=status_reporter, daemon=True).start()
 
-# Make status file ID available to the autorun cell
-status_file_global = status_file_id
-log_drive_service_global = log_drive_service
+# Print initial status message
+log_status("Output streaming initialized - logs will be visible in GitHub Actions", important=True)
+log_status("This method uses direct output streaming instead of file-based logging")
 """
 
 AUTORUN_CELL = """
-# Auto-execution cell added by CI/CD
+# Cell-by-cell execution with detailed output
 import IPython
 import time
 import sys
-import json
 import traceback
+import os
+import datetime
 
-# Get status file ID from previous cell
-status_file_id = status_file_global
-drive_service = log_drive_service_global
+# Function to print important status messages
+def log_status(message, important=False):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if important:
+        separator = "=" * 40
+        print(f"\\n{separator}")
+        print(f"[STATUS] {timestamp}: {message}")
+        print(f"{separator}\\n")
+    else:
+        print(f"[LOG] {timestamp}: {message}")
+    sys.stdout.flush()
 
 # Print runtime info
-print("=== RUNTIME INFORMATION ===")
+log_status("RUNTIME INFORMATION", important=True)
 !nvidia-smi  # Show GPU info if available
 !python --version  # Show Python version
-print("===========================")
-
-# Function to update status
-def update_status(status):
-    try:
-        from googleapiclient.http import MediaIoBaseUpload
-        import io
-        
-        media = MediaIoBaseUpload(
-            io.BytesIO(json.dumps(status).encode()),
-            mimetype='application/json',
-            resumable=True
-        )
-        
-        drive_service.files().update(
-            fileId=status_file_id,
-            media_body=media
-        ).execute()
-    except Exception as e:
-        print(f"Error updating status: {e}")
+!hostname  # Show hostname
+!df -h  # Show disk space
 
 # Get all cells in the notebook
-notebook = IPython.get_ipython().kernel.shell.user_ns['_ih']
-cells = [cell for i, cell in notebook.items() if i != 0 and isinstance(i, int) and cell.strip()]
-
-# Skip the first two cells (the log redirector and this autorun cell)
-cells_to_run = cells[2:] if len(cells) > 2 else []
-
-# Update status with total cell count
-notebook_status['total_cells'] = len(cells_to_run)
-notebook_status['status'] = 'running'
-update_status(notebook_status)
-
-print(f"Found {len(cells_to_run)} cells to execute")
+def get_notebook_cells():
+    shell = IPython.get_ipython().kernel.shell
+    notebook = shell.user_ns['_ih']
+    # Convert to a list, skipping non-integer indexes and empty cells
+    cells = []
+    for i in sorted([i for i in notebook.keys() if isinstance(i, int)]):
+        if i > 0 and notebook[i].strip():  # Skip cell 0 and empty cells
+            cells.append(notebook[i])
+    
+    # Skip the first two injected cells (logging and this autorun cell)
+    return cells[2:] if len(cells) > 2 else []
 
 # Function to run all cells one by one
 def run_cells_one_by_one():
-    print("Starting cell-by-cell execution in 5 seconds...")
-    time.sleep(5)
+    log_status("Preparing to execute notebook cell by cell", important=True)
+    time.sleep(2)
     
     # Make sure we're connected to the runtime
     IPython.get_ipython().run_cell("from google.colab import runtime; runtime.connect()")
-    print("Connected to runtime. Starting execution...")
+    log_status("Connected to Colab runtime")
+    
+    # Get cells to execute
+    cells_to_run = get_notebook_cells()
+    log_status(f"Found {len(cells_to_run)} cells to execute")
+    
+    # Update global execution status
+    execution_status["total_cells"] = len(cells_to_run)
+    execution_status["current_status"] = "running"
+    
+    cell_execution_times = []
     
     for i, cell_code in enumerate(cells_to_run):
         cell_num = i + 1  # 1-indexed for display
         
         # Update status before executing cell
-        notebook_status['current_cell'] = cell_num
-        notebook_status['status'] = f'executing_cell_{cell_num}'
-        notebook_status['last_update'] = time.time()
-        update_status(notebook_status)
+        execution_status["current_cell"] = cell_num
+        execution_status["current_status"] = f"executing_cell_{cell_num}"
         
-        print(f"\\n==== EXECUTING CELL {cell_num}/{len(cells_to_run)} ====")
-        print(f"Cell preview: {cell_code[:100]}...")  # Show first 100 chars
+        log_status(f"EXECUTING CELL {cell_num}/{len(cells_to_run)}", important=True)
+        # Print a truncated preview of the cell for debugging
+        preview = cell_code.replace('\\n', ' ')[:100] + ('...' if len(cell_code) > 100 else '')
+        log_status(f"Cell content preview: {preview}")
         
         # Execute the cell
         try:
             start_time = time.time()
             IPython.get_ipython().run_cell(cell_code)
             execution_time = time.time() - start_time
-            print(f"\\n==== CELL {cell_num}/{len(cells_to_run)} COMPLETED in {execution_time:.2f}s ====")
+            cell_execution_times.append(execution_time)
+            
+            log_status(f"CELL {cell_num}/{len(cells_to_run)} COMPLETED in {execution_time:.2f}s", important=True)
             
             # Update status after successful execution
-            notebook_status['status'] = f'completed_cell_{cell_num}'
-            notebook_status['last_update'] = time.time()
-            update_status(notebook_status)
+            execution_status["current_status"] = f"completed_cell_{cell_num}"
             
-            # Force flush to ensure logs are written
+            # Force flush
             sys.stdout.flush()
             
         except Exception as e:
             error_msg = f"Error executing cell {cell_num}: {str(e)}\\n{traceback.format_exc()}"
-            print(f"\\n==== ERROR IN CELL {cell_num}/{len(cells_to_run)} ====")
-            print(error_msg)
+            log_status(f"ERROR IN CELL {cell_num}/{len(cells_to_run)}", important=True)
+            log_status(error_msg)
             
             # Update status with error
-            notebook_status['status'] = 'error'
-            notebook_status['error'] = error_msg
-            notebook_status['last_update'] = time.time()
-            update_status(notebook_status)
+            execution_status["current_status"] = "error"
+            execution_status["error"] = error_msg
             
             # Continue with next cell despite error
-            print("Continuing with next cell...")
+            log_status("Continuing with next cell...")
+    
+    # Calculate and print execution summary
+    if cell_execution_times:
+        total_time = sum(cell_execution_times)
+        avg_time = total_time / len(cell_execution_times)
+        log_status(f"EXECUTION SUMMARY", important=True)
+        log_status(f"Total execution time: {total_time:.2f}s")
+        log_status(f"Average cell execution time: {avg_time:.2f}s")
+        log_status(f"Fastest cell: {min(cell_execution_times):.2f}s")
+        log_status(f"Slowest cell: {max(cell_execution_times):.2f}s")
     
     # Update final status
-    notebook_status['status'] = 'completed'
-    notebook_status['last_update'] = time.time()
-    update_status(notebook_status)
-    print("\\n==== NOTEBOOK EXECUTION COMPLETED ====")
+    execution_status["current_status"] = "completed"
+    log_status("NOTEBOOK EXECUTION COMPLETED", important=True)
 
-# Run automatically
-run_cells_one_by_one()
+# Run automatically with error handling
+try:
+    run_cells_one_by_one()
+except Exception as e:
+    log_status(f"CRITICAL ERROR IN AUTORUN: {str(e)}", important=True)
+    log_status(traceback.format_exc())
 """
