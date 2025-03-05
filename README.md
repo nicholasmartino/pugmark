@@ -116,6 +116,12 @@ This project supports running training directly on a Vertex AI Workbench instanc
 1. **Automatic Training**: The training job runs automatically when:
    - Changes are pushed to the `main` or `master` branch
    - The changes include files in the `src/training` directory or workflow scripts
+   
+   When running automatically, the workflow uses these default settings:
+   - Creates a new instance named `pugmark-{run-id}`
+   - Uses an `n1-standard-8` machine with one NVIDIA T4 GPU
+   - Automatically deletes the instance after training (to save costs)
+   - Runs for 100 epochs with batch size 1
 
 2. **Manual Execution**:
    - Go to the "Actions" tab in your GitHub repository

@@ -9,6 +9,7 @@ on:
       - 'src/training/**'
       - 'scripts/vertex_workbench_execute.py'
       - 'scripts/run_on_workbench.sh'
+      - '.github/workflows/workbench-training.yml'
   workflow_dispatch:
     inputs:
       instance_name:
