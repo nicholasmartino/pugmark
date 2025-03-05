@@ -34,22 +34,58 @@ echo "Batch Size: $BATCH_SIZE"
 echo "Repository URL: $REPO_URL"
 echo "==========================================="
 
-# Install required Python packages
-pip install google-cloud-aiplatform google-cloud-storage "google-cloud-notebooks<1.13.0"
+# Install only the minimal necessary dependencies for controlling Workbench
+pip install google-cloud-aiplatform google-api-python-client google-auth google-auth-httplib2
 
-# Execute the Python script
-python scripts/vertex_workbench_execute.py \
-  --project-id "$PROJECT_ID" \
-  --region "$REGION" \
-  --zone "$ZONE" \
-  --instance-name "$INSTANCE_NAME" \
-  --create-instance "$CREATE_INSTANCE" \
-  --machine-type "$MACHINE_TYPE" \
-  --accelerator-type "$ACCELERATOR_TYPE" \
-  --accelerator-count "$ACCELERATOR_COUNT" \
-  --delete-after-training "$DELETE_AFTER_TRAINING" \
-  --output-bucket "$OUTPUT_BUCKET" \
-  --output-prefix "$OUTPUT_PREFIX" \
-  --epochs "$EPOCHS" \
-  --batch-size "$BATCH_SIZE" \
-  --repo-url "$REPO_URL" 
+# Create startup script to run on Workbench instance
+cat > setup_and_train.sh << 'EOL'
+#!/bin/bash
+set -e
+
+# Clone the repository
+if [ -n "$REPO_URL" ]; then
+  echo "Cloning repository $REPO_URL..."
+  rm -rf /tmp/pugmark
+  git clone $REPO_URL /tmp/pugmark
+  cd /tmp/pugmark
+  pip install -r requirements.txt
+fi
+
+# Set environment variables
+export OUTPUT_DIR="$OUTPUT_PATH"
+export AIP_MODE="training"
+export TF_FORCE_GPU_ALLOW_GROWTH="true"
+export EPOCHS="$EPOCHS"
+export BATCH_SIZE="$BATCH_SIZE"
+
+# Run training
+echo "Starting training..."
+cd /tmp/pugmark
+python -c "from src.training.Trainer import train; train()"
+EOL
+
+# Use gcloud to create instance (if needed) and execute training
+if [ "$CREATE_INSTANCE" = "true" ]; then
+  echo "Creating Workbench instance..."
+  gcloud compute instances create $INSTANCE_NAME \
+    --project=$PROJECT_ID \
+    --zone=$ZONE \
+    --machine-type=$MACHINE_TYPE \
+    --accelerator=type=$ACCELERATOR_TYPE,count=$ACCELERATOR_COUNT \
+    --image-family=tf-ent-2-12-cu113-notebooks \
+    --image-project=deeplearning-platform-release \
+    --boot-disk-size=100GB \
+    --metadata=install-nvidia-driver=True
+fi
+
+# Copy and execute startup script
+echo "Copying and executing startup script..."
+gcloud compute scp setup_and_train.sh $INSTANCE_NAME:~/setup_and_train.sh --zone=$ZONE
+gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command "bash ~/setup_and_train.sh" \
+  --environment-variables="REPO_URL=$REPO_URL,OUTPUT_PATH=$OUTPUT_BUCKET/$OUTPUT_PREFIX,EPOCHS=$EPOCHS,BATCH_SIZE=$BATCH_SIZE"
+
+# Delete instance if requested
+if [ "$CREATE_INSTANCE" = "true" ] && [ "$DELETE_AFTER_TRAINING" = "true" ]; then
+  echo "Deleting Workbench instance..."
+  gcloud compute instances delete $INSTANCE_NAME --zone=$ZONE --quiet
+fi 
