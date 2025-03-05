@@ -1,27 +1,41 @@
 #!/bin/bash
 
-# Delete job if exists (non-interactive)
-gcloud run jobs delete pugmark-training \
+# Check if the notebook instance already exists and delete it if it does
+NOTEBOOK_NAME="pugmark-notebook"
+NOTEBOOK_EXISTS=$(gcloud notebooks instances list \
   --project $GCP_PROJECT_ID \
-  --region us-central1 \
-  --quiet
+  --location us-central1 \
+  --filter="name:$NOTEBOOK_NAME" \
+  --format="value(name)")
 
-# Submit training job
-gcloud run jobs create pugmark-training \
-  --image us-central1-docker.pkg.dev/$GCP_PROJECT_ID/pugmark/pugmark:latest \
-  --region us-central1 \
-  --project $GCP_PROJECT_ID \
-  --service-account=github-service-account@$GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --task-timeout=43200 \
-  --parallelism=1 \
-  --cpu=4 \
-  --memory=4G \
-  --max-retries=0 \
-  --command="python3" \
-  --args="/app/src/training/train.py"
+if [ -n "$NOTEBOOK_EXISTS" ]; then
+  echo "Deleting existing notebook: $NOTEBOOK_NAME"
+  gcloud notebooks instances delete $NOTEBOOK_NAME \
+    --project $GCP_PROJECT_ID \
+    --location us-central1 \
+    --quiet
+fi
 
-# Execute the job immediately after creation
-gcloud run jobs execute pugmark-training \
+# Create a new Colab Enterprise notebook on Vertex AI with GPU
+gcloud notebooks instances create $NOTEBOOK_NAME \
   --project $GCP_PROJECT_ID \
-  --region us-central1 \
-  --wait
+  --location us-central1 \
+  --vm-image-project deeplearning-platform-release \
+  --vm-image-family colab-enterprise-gpu \
+  --machine-type n1-standard-4 \
+  --accelerator-type NVIDIA_TESLA_T4 \
+  --accelerator-core-count 1 \
+  --boot-disk-size 100GB \
+  --service-account github-service-account@$GCP_PROJECT_ID.iam.gserviceaccount.com \
+  --metadata="install-nvidia-driver=True" \
+  --metadata="proxy-mode=service_account" \
+  --metadata="container-repository=us-central1-docker.pkg.dev/$GCP_PROJECT_ID/pugmark/pugmark:latest" \
+  --no-register-for-update
+
+echo "Waiting for notebook instance to be created..."
+gcloud notebooks instances get $NOTEBOOK_NAME \
+  --project $GCP_PROJECT_ID \
+  --location us-central1
+
+echo "Notebook instance $NOTEBOOK_NAME created with GPU (NVIDIA T4). You can now access it through the Google Cloud console."
+echo "URL: https://console.cloud.google.com/vertex-ai/workbench/notebooks/instances?project=$GCP_PROJECT_ID"
