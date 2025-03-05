@@ -102,177 +102,225 @@ log_status("Output streaming initialized - logs will be visible in GitHub Action
 log_status("This method uses direct output streaming instead of file-based logging")
 """
 
-AUTORUN_CELL = """
-# Cell-by-cell execution with detailed output
-import IPython
+AUTORUN_CELL = '''# @title Autorun all cells sequentially {display-mode: "form"}
+# This cell will execute all notebook cells in sequence
+
 import time
+import re
+import json
 import sys
-import traceback
 import os
-import datetime
+from IPython import display
+from IPython.core.interactiveshell import InteractiveShell
+from IPython.display import Javascript
 
-# Function to print important status messages
-def log_status(message, important=False):
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if important:
-        separator = "=" * 40
-        print(f"\\n{separator}")
-        print(f"[COLAB_STATUS] {timestamp}: {message}")
-        print(f"{separator}\\n")
-    else:
-        print(f"[COLAB_LOG] {timestamp}: {message}")
-    sys.stdout.flush()
+# Force runtime connection immediately
+print("\\n" + "*" * 80)
+print("* INITIALIZING RUNTIME AND VERIFYING CONNECTION *".center(78))
+print("*" * 80 + "\\n")
 
-# Print runtime info with very visible banner
-print(f"\\n{'#' * 80}")
-print("#" + " COLAB RUNTIME INFORMATION ".center(78) + "#")
-print(f"{'#' * 80}\\n")
-sys.stdout.flush()
-
-!nvidia-smi  # Show GPU info if available
-!python --version  # Show Python version
-!hostname  # Show hostname
-!df -h  # Show disk space
-
-# Get all cells in the notebook
-def get_notebook_cells():
-    try:
-        shell = IPython.get_ipython().kernel.shell
-        notebook = shell.user_ns['_ih']
-        # Convert to a list, skipping non-integer indexes and empty cells
-        cells = []
-        for i in sorted([i for i in notebook.keys() if isinstance(i, int)]):
-            if i > 0 and notebook[i].strip():  # Skip cell 0 and empty cells
-                cells.append(notebook[i])
-        
-        # Skip the first two injected cells (logging and this autorun cell)
-        return cells[2:] if len(cells) > 2 else []
-    except Exception as e:
-        print(f"Error getting notebook cells: {str(e)}\\n{traceback.format_exc()}")
-        return []
-
-# Function to run all cells one by one
-def run_cells_one_by_one():
-    log_status("Preparing to execute notebook cell by cell", important=True)
-    
-    # Print additional info to help diagnose issues
-    print(f"\\n{'=' * 50}")
-    print(f"IPython version: {IPython.__version__}")
-    print(f"Running in directory: {os.getcwd()}")
-    print(f"{'=' * 50}\\n")
-    
-    time.sleep(2)
-    
-    # Make sure we're connected to the runtime
-    try:
-        IPython.get_ipython().run_cell("from google.colab import runtime; runtime.connect()")
-        log_status("Connected to Colab runtime")
-    except Exception as e:
-        log_status(f"Error connecting to runtime: {str(e)}", important=True)
-    
-    # Get cells to execute
-    cells_to_run = get_notebook_cells()
-    log_status(f"Found {len(cells_to_run)} cells to execute", important=True)
-    
-    # Update global execution status
-    execution_status["total_cells"] = len(cells_to_run)
-    execution_status["current_status"] = "running"
-    
-    # Print cell count information
-    print(f"\\n{'=' * 50}")
-    print(f"TOTAL CELLS TO EXECUTE: {len(cells_to_run)}")
-    print(f"{'=' * 50}\\n")
-    sys.stdout.flush()
-    
-    cell_execution_times = []
-    
-    for i, cell_code in enumerate(cells_to_run):
-        cell_num = i + 1  # 1-indexed for display
-        
-        # Update status before executing cell
-        execution_status["current_cell"] = cell_num
-        execution_status["current_status"] = f"executing_cell_{cell_num}"
-        
-        # Print a very visible cell execution marker
-        print(f"\\n{'▼' * 80}")
-        print(f"▼▼▼ EXECUTING CELL {cell_num}/{len(cells_to_run)} ▼▼▼")
-        print(f"{'▼' * 80}")
-        
-        # Print a truncated preview of the cell for debugging
-        preview = cell_code.replace('\\n', ' ')[:100] + ('...' if len(cell_code) > 100 else '')
-        print(f"Cell content preview: {preview}")
-        sys.stdout.flush()
-        
-        # Execute the cell
-        try:
-            start_time = time.time()
-            IPython.get_ipython().run_cell(cell_code)
-            execution_time = time.time() - start_time
-            cell_execution_times.append(execution_time)
-            
-            # Print a very visible cell completion marker
-            print(f"\\n{'▲' * 80}")
-            print(f"▲▲▲ CELL {cell_num}/{len(cells_to_run)} COMPLETED in {execution_time:.2f}s ▲▲▲")
-            print(f"{'▲' * 80}\\n")
-            sys.stdout.flush()
-            
-            # Update status after successful execution
-            execution_status["current_status"] = f"completed_cell_{cell_num}"
-            
-            # Force flush
-            sys.stdout.flush()
-            
-        except Exception as e:
-            error_msg = f"Error executing cell {cell_num}: {str(e)}\\n{traceback.format_exc()}"
-            
-            # Print a very visible error marker
-            print(f"\\n{'!' * 80}")
-            print(f"!!! ERROR IN CELL {cell_num}/{len(cells_to_run)} !!!")
-            print(error_msg)
-            print(f"{'!' * 80}\\n")
-            sys.stdout.flush()
-            
-            # Update status with error
-            execution_status["current_status"] = "error"
-            execution_status["error"] = error_msg
-            
-            # Continue with next cell despite error
-            log_status("Continuing with next cell...")
-    
-    # Calculate and print execution summary
-    if cell_execution_times:
-        total_time = sum(cell_execution_times)
-        avg_time = total_time / len(cell_execution_times)
-        
-        print(f"\\n{'#' * 80}")
-        print(f"# EXECUTION SUMMARY ".ljust(79, '#'))
-        print(f"# Total execution time: {total_time:.2f}s".ljust(79, '#'))
-        print(f"# Average cell execution time: {avg_time:.2f}s".ljust(79, '#'))
-        print(f"# Fastest cell: {min(cell_execution_times):.2f}s".ljust(79, '#'))
-        print(f"# Slowest cell: {max(cell_execution_times):.2f}s".ljust(79, '#'))
-        print(f"{'#' * 80}\\n")
-        sys.stdout.flush()
-    
-    # Update final status
-    execution_status["current_status"] = "completed"
-    
-    # Print completion banner
-    print(f"\\n{'*' * 80}")
-    print("*" + " " * 78 + "*")
-    print("*" + " NOTEBOOK EXECUTION COMPLETED ".center(78) + "*")
-    print("*" + " " * 78 + "*")
-    print(f"{'*' * 80}\\n")
-    sys.stdout.flush()
-
-# Run automatically with error handling
+# Aggressively try to connect to runtime and verify GPU
 try:
-    run_cells_one_by_one()
+    # Force runtime connection
+    from google.colab import runtime
+    runtime.connect(timeout_sec=60)  # Longer timeout to ensure connection
+    print("✓ Successfully connected to runtime")
+    
+    # Try to mount drive
+    from google.colab import drive
+    try:
+        drive.mount('/content/drive', force_remount=True)
+        print("✓ Drive mounted successfully")
+    except Exception as drive_error:
+        print(f"Drive mounting not required or failed: {drive_error}")
+    
+    # Check for GPU
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        print(f"✓ GPU available: {len(gpus)} device(s)")
+        # Try to get GPU info
+        try:
+            !nvidia-smi -L
+        except:
+            pass
+    else:
+        print("⚠️ No GPU found! Using CPU.")
+    
+    # Clear output for clean start
+    display.clear_output(wait=True)
+    print("✓ Runtime initialized successfully. Starting execution...", flush=True)
+except Exception as init_error:
+    print(f"Runtime initialization warning: {init_error}")
+    print("Will continue with execution anyway...")
+
+# Define globals for execution state
+execution_state = {
+    "start_time": time.time(),
+    "current_cell": 0,
+    "total_cells": 0,
+    "status": "starting",
+    "last_update": time.time(),
+    "errors": []
+}
+
+def get_all_code_cells():
+    """Get all code cells in the notebook, excluding this cell and the log cell"""
+    # This uses IPython's internal API to get all cells
+    shell = InteractiveShell.instance()
+    cells = []
+    
+    # Loop through all cells
+    for i, cell in enumerate(shell.user_ns.get('_ih', [])):
+        # Skip empty cells, the autorun cell and the log cell
+        if not cell or "Autorun all cells" in cell or "log streaming" in cell:
+            continue
+        cells.append((i, cell))
+    
+    execution_state["total_cells"] = len(cells)
+    return cells
+
+def print_status(msg, cell_num=None, total=None):
+    """Print status message with formatting"""
+    elapsed = (time.time() - execution_state["start_time"]) / 60
+    if cell_num is not None and total is not None:
+        # Print a special marker for parsing by the monitoring script
+        print(f"\\n▼▼▼ EXECUTING CELL {cell_num}/{total} ▼▼▼", flush=True)
+        # Print a preview of the cell content
+        if current_cell_code:
+            preview = current_cell_code.split("\\n")[0][:50]
+            if len(preview) == 50:
+                preview += "..."
+            print(f"Cell preview: {preview}", flush=True)
+    
+    # Always include timestamp and elapsed time
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{elapsed:.1f}min] {msg}", flush=True)
+    execution_state["last_update"] = time.time()
+    execution_state["status"] = msg
+
+def execute_cell(cell_num, code):
+    """Execute a single cell and capture its output and errors"""
+    global current_cell_code
+    current_cell_code = code
+    
+    execution_state["current_cell"] = cell_num
+    cell_start_time = time.time()
+    
+    # Report start of execution
+    print_status(f"Executing cell {cell_num}/{execution_state['total_cells']}", 
+                cell_num, execution_state["total_cells"])
+    
+    success = True
+    try:
+        # Execute the cell code
+        shell = InteractiveShell.instance()
+        result = shell.run_cell(code)
+        
+        if result.error_before_exec or result.error_in_exec:
+            success = False
+            error_msg = str(result.error_in_exec or result.error_before_exec)
+            execution_state["errors"].append({
+                "cell": cell_num,
+                "error": error_msg
+            })
+            print(f"\\n❌ ERROR in cell {cell_num}: {error_msg}", flush=True)
+    except Exception as e:
+        success = False
+        execution_state["errors"].append({
+            "cell": cell_num,
+            "error": str(e)
+        })
+        print(f"\\n❌ ERROR executing cell {cell_num}: {str(e)}", flush=True)
+    
+    # Calculate execution time
+    exec_time = time.time() - cell_start_time
+    exec_time_str = f"{exec_time:.1f}s" if exec_time < 60 else f"{exec_time/60:.1f}min"
+    
+    # Report completion
+    status = "COMPLETED" if success else "FAILED"
+    print(f"▲▲▲ CELL {cell_num}/{execution_state['total_cells']} {status} in {exec_time_str} ▲▲▲\\n", flush=True)
+    
+    # Return success/failure
+    return success
+
+# Start execution process
+print("\\n" + "=" * 80, flush=True)
+print("PUGMARK TRAINING AUTOMATION".center(80), flush=True)
+print(f"Starting execution at {time.strftime('%Y-%m-%d %H:%M:%S')}".center(80), flush=True)
+print("=" * 80 + "\\n", flush=True)
+
+# Install required packages for runtime setup
+print("Setting up runtime environment...", flush=True)
+try:
+    # Force runtime connection
+    print("Checking runtime type...")
+    import tensorflow as tf
+    try:
+        if tf.config.list_physical_devices('GPU'):
+            print("✓ GPU is available")
+            gpu_info = !nvidia-smi
+            if gpu_info:
+                print(f"GPU Info: {gpu_info[0]}")
+        else:
+            print("⚠️ No GPU found. Using CPU only.")
+    except:
+        print("Could not verify GPU. Will continue regardless.")
+except:
+    print("Could not import tensorflow yet. Continuing...")
+
+try:
+    # Run update and install packages first
+    shell = InteractiveShell.instance()
+    
+    # Configure Colab environment for optimal training
+    print("\\nConfiguring environment for training...", flush=True)
+    setup_commands = [
+        "pip install -q tensorflow==2.10.1 ipywidgets",
+        "import tensorflow as tf; print(f'TensorFlow version: {tf.__version__}')",
+        "import numpy as np; print(f'NumPy version: {np.__version__}')",
+        "import os; print(f'Environment: {os.environ.get(\"COLAB_GPU\", \"No GPU\")}')"
+    ]
+    
+    for cmd in setup_commands:
+        try:
+            shell.run_cell(cmd)
+        except Exception as e:
+            print(f"Setup command failed: {e}", flush=True)
+            # Continue anyway
+            pass
+    
+    # Get all cells and execute them sequentially
+    cells = get_all_code_cells()
+    print(f"\\nFound {len(cells)} cells to execute", flush=True)
+    current_cell_code = ""
+    
+    # Execute all cells
+    for i, (cell_num, code) in enumerate(cells):
+        # Skip the first cell (this auto-run cell)
+        if "Autorun all cells" in code:
+            continue
+            
+        success = execute_cell(cell_num, code)
+        # Continue even if a cell fails
+    
+    # Final status
+    errors = len(execution_state["errors"])
+    if errors > 0:
+        print(f"\\n⚠️ Execution completed with {errors} errors", flush=True)
+    else:
+        print("\\n✅ All cells executed successfully!", flush=True)
+    
+    # Report total execution time
+    total_time = (time.time() - execution_state["start_time"]) / 60
+    print(f"Total execution time: {total_time:.1f} minutes", flush=True)
+    print("\\n" + "=" * 80, flush=True)
+    print("NOTEBOOK EXECUTION COMPLETED".center(80), flush=True)
+    print("=" * 80 + "\\n", flush=True)
+    
 except Exception as e:
-    # Print a very visible critical error banner
-    print(f"\\n{'!' * 80}")
-    print("!" + " CRITICAL ERROR IN AUTORUN ".center(78, '!') + "!")
-    print(f"{str(e)}")
-    print(traceback.format_exc())
-    print(f"{'!' * 80}\\n")
-    sys.stdout.flush()
-"""
+    print(f"\\n❌ Fatal error in autorun: {str(e)}", flush=True)
+    import traceback
+    traceback.print_exc()
+    print("\\nPlease check the error and run cells manually", flush=True)
+'''

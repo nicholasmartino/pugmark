@@ -377,7 +377,7 @@ def upload_to_drive(drive_service, file_path):
 def create_colab_vm_and_execute(drive_service, file_id, machine_type):
     """Create a Colab VM and execute the notebook."""
     print(
-        f"Creating Colab VM with {machine_type} and executing notebook...", flush=True
+        f"\nCreating Colab VM with {machine_type} and executing notebook...", flush=True
     )
 
     # Check if we're using a shared drive
@@ -400,13 +400,81 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
 
             # Create logging cell from imported code
             log_cell = nbformat.v4.new_code_cell(LOG_STREAMING_CELL)
+            log_cell.metadata = {"cellView": "form", "id": "log_streaming_cell"}
 
             # Add autorun cell from imported code
             autorun_cell = nbformat.v4.new_code_cell(AUTORUN_CELL)
+            autorun_cell.metadata = {"cellView": "form", "id": "autorun_cell"}
+
+            # Add a cell that directly triggers runtime connection - this is critical
+            connect_cell = nbformat.v4.new_code_cell(
+                """# Cell to force connection and execution
+print("\\n" + "*" * 80)
+print("* ATTEMPTING TO CONNECT TO RUNTIME *".center(78))
+print("*" * 80 + "\\n")
+
+# Try multiple approaches to ensure the runtime connects
+try:
+    from google.colab import drive
+    # Mount drive - often helps trigger execution
+    try:
+        drive.mount('/content/drive')
+        print("Drive mounted successfully")
+    except:
+        print("Drive mount not needed or failed")
+    
+    # Force runtime connection
+    from google.colab import runtime
+    runtime.connect()
+    print("Explicitly connected to runtime")
+    
+    # Import tensorflow to verify GPU
+    import tensorflow as tf
+    if tf.config.list_physical_devices('GPU'):
+        print("✓ GPU is available!")
+    else:
+        print("⚠️ No GPU found. Using CPU.")
+        
+    # Import display for clearing output
+    from IPython import display
+    display.clear_output(wait=True)
+    print("Output cleared. Starting execution...")
+    
+    # Explicitly run first autorun cell
+    import IPython
+    print("Triggering autorun cell...")
+    get_ipython().run_cell(%cell -i log_streaming_cell)
+    get_ipython().run_cell(%cell -i autorun_cell)
+    print("Autorun cells triggered")
+except Exception as e:
+    print(f"Error during startup: {str(e)}")
+    print("Will try fallback methods...")
+    # Try fallback execution
+    try:
+        get_ipython().system('pip install -q ipywidgets')
+        print("Execution may need to be done manually - please open Colab URL and click Runtime > Run all")
+    except:
+        pass
+"""
+            )
+            connect_cell.metadata = {"cellView": "form", "id": "force_connect_cell"}
 
             # Insert at beginning (in reverse order so they appear in the right sequence)
             notebook_content.cells.insert(0, autorun_cell)
             notebook_content.cells.insert(0, log_cell)
+            notebook_content.cells.insert(0, connect_cell)
+
+            # Add a special cell at the end to ensure we know when execution completes
+            final_check_cell = nbformat.v4.new_code_cell(
+                """# Final completion check
+print("\\n" + "=" * 80)
+print("NOTEBOOK EXECUTION COMPLETED - FINAL CHECK CELL REACHED")
+print("All cells have been executed")
+print("=" * 80 + "\\n")
+"""
+            )
+            final_check_cell.metadata = {"cellView": "form", "id": "final_check_cell"}
+            notebook_content.cells.append(final_check_cell)
 
             # Convert back to string
             updated_notebook = nbformat.writes(notebook_content)
@@ -421,14 +489,11 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
                 fileId=file_id, media_body=media, **params
             ).execute()
 
-            print("Added log streaming and autorun cells to notebook", flush=True)
+            print("Added execution cells to notebook", flush=True)
 
     except Exception as e:
-        print(f"Could not add streaming cells: {e}", flush=True)
-        print(
-            "The notebook will need to be executed manually and logs won't be streamed",
-            flush=True,
-        )
+        print(f"Could not add execution cells: {e}", flush=True)
+        print("The notebook will need to be executed manually", flush=True)
         traceback.print_exc()
 
     # Using drive API to update file resource with Colab execution metadata
@@ -478,59 +543,108 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
             flush=True,
         )
 
+    # Manually trigger execution via the Colab API if possible
+    try:
+        print("\nAttempting to directly trigger notebook execution...", flush=True)
+        # We can't directly trigger execution through the API, but we can try to simulate
+        # browser interaction by making some API calls that might nudge Colab to start
+
+        # First, let's make sure the file has the right MIME type for Colab
+        update_metadata = {
+            "mimeType": "application/vnd.google.colab",
+            "appProperties": {
+                "colab-kernel-name": "python3",
+                "colab-runtime-mode": "AUTOMATED",
+                "colab-auto-connect": "TRUE",
+                "colab-session-id": f"session-{int(time.time())}",
+            },
+        }
+
+        drive_service.files().update(
+            fileId=file_id, body=update_metadata, **params
+        ).execute()
+
+        print("Updated file with Colab-specific metadata", flush=True)
+        print(
+            "Execution should begin automatically when Colab opens the notebook",
+            flush=True,
+        )
+        print(
+            "If execution doesn't start within 5 minutes, you may need to open the URL and trigger manually",
+            flush=True,
+        )
+
+    except Exception as trigger_error:
+        print(
+            f"Note: Could not trigger automatic execution: {str(trigger_error)}",
+            flush=True,
+        )
+        print(
+            "You may need to open the Colab URL manually to start execution", flush=True
+        )
+
     return colab_url, "colab_execution_log.txt"  # Return log file name for streaming
 
 
 def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=30):
     """
-    Wait for notebook execution to complete by checking the notebook content directly.
+    Wait for Colab notebook execution to complete.
 
-    This function monitors the execution progress by polling the notebook and looking for
-    specific markers that indicate completion or continued execution.
-
-    Args:
-        service: The Google Drive API service instance
-        file_id: The ID of the notebook file to monitor
-        timeout_minutes: Maximum time to wait (in minutes)
-        poll_interval_seconds: How often to check the notebook status (in seconds)
-
-    Returns:
-        True if execution completed successfully, False if timeout occurred,
-        "token_expired" if token expiration is detected
+    Monitors the notebook by checking its content for execution markers periodically.
+    Returns True if execution completed successfully, False if timeout or errors occurred.
     """
-    print("\nWaiting for Colab notebook execution to complete...")
-    print(
-        f"Will poll every {poll_interval_seconds} seconds for up to {timeout_minutes} minutes"
+    print(f"\nWaiting for Colab notebook execution to complete...", flush=True)
+    (
+        print(
+            f"Will poll every {poll_interval_seconds//60} minutes for up to {timeout_minutes} minutes",
+            flush=True,
+        )
+        if poll_interval_seconds >= 60
+        else print(
+            f"Will poll every {poll_interval_seconds} seconds for up to {timeout_minutes} minutes",
+            flush=True,
+        )
     )
-    print(f"Notebook ID: {file_id}")
+    print(f"Notebook ID: {file_id}", flush=True)
 
     start_time = time.time()
-    timeout_seconds = timeout_minutes * 60
+    params = {"alt": "media"}
 
-    # Check if we're using a shared drive
-    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
-    params = {}
-    if shared_drive_id:
-        params["supportsAllDrives"] = True
+    # Track the last time we saw an update to determine if notebook is stalled
+    last_update_time = start_time
+    last_cell_count = 0
+    last_status_count = 0
+    last_log_count = 0
+    startup_delay_warning_shown = False
+    is_running = False
 
-    # Keep track of last observed output markers
-    last_cell_executed = None
-    last_seen_output = None
-    last_debug_output_time = time.time() - 120  # Start with printing debug output
+    # Keep track of the cells we've seen
+    executed_cell_indices = set()
+    total_cells = 0
 
-    while True:
-        # Check if we've exceeded timeout
-        elapsed_seconds = time.time() - start_time
-        if elapsed_seconds > timeout_seconds:
-            print(f"\n⚠️ Timeout of {timeout_minutes} minutes exceeded!")
-            print(f"The notebook execution may still be in progress.")
-            print(
-                f"You can check the notebook at: https://colab.research.google.com/drive/{file_id}"
-            )
-            return False
-
+    while (time.time() - start_time) / 60 < timeout_minutes:
         try:
-            # Get the current notebook content using get_media instead of export
+            # Calculate elapsed time
+            elapsed_minutes = (time.time() - start_time) / 60
+
+            # Check if token is about to expire (tokens typically last 60 minutes)
+            if elapsed_minutes > 55 and not is_running:
+                print(
+                    "\n⚠️ WARNING: Wait time is approaching token expiration limit (60 minutes)",
+                    flush=True,
+                )
+                print(
+                    "No notebook activity detected yet. There might be an issue with:"
+                )
+                print("1. Colab runtime availability (high demand/queue)")
+                print("2. Service account permissions")
+                print("3. Network connectivity")
+                print(
+                    "\nPlease check the Colab URL manually to verify status.",
+                    flush=True,
+                )
+
+            # Get the notebook content
             request = service.files().get_media(fileId=file_id, **params)
             notebook_content = request.execute().decode("utf-8")
 
@@ -541,19 +655,80 @@ def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=
                 # Extract output from all cells
                 cell_outputs = []
                 executed_cells = 0
+                status_message_count = 0
+                log_message_count = 0
+                runtime_connected = False
+                has_gpu = False
 
+                # Count total cells for progress reporting (excluding our injected cells)
+                if total_cells == 0:
+                    # Filter out our special cells with ID metadata
+                    user_cells = [
+                        cell
+                        for cell in notebook.cells
+                        if not (
+                            hasattr(cell, "metadata")
+                            and cell.metadata.get("id")
+                            in [
+                                "force_connect_cell",
+                                "log_streaming_cell",
+                                "autorun_cell",
+                                "final_check_cell",
+                            ]
+                        )
+                    ]
+                    total_cells = len(user_cells)
+
+                # Process all cells
                 for i, cell in enumerate(notebook.cells):
+                    # Skip our special cells in the count
+                    is_special_cell = hasattr(cell, "metadata") and cell.metadata.get(
+                        "id"
+                    ) in [
+                        "force_connect_cell",
+                        "log_streaming_cell",
+                        "autorun_cell",
+                        "final_check_cell",
+                    ]
+
                     if (
                         cell.cell_type == "code"
                         and hasattr(cell, "outputs")
                         and cell.outputs
                     ):
-                        executed_cells += 1
+                        # Count executed cells (but not our special cells)
+                        if not is_special_cell:
+                            executed_cells += 1
+                            executed_cell_indices.add(i)
+
+                        # Check for startup output in the connect cell
+                        if (
+                            hasattr(cell, "metadata")
+                            and cell.metadata.get("id") == "force_connect_cell"
+                        ):
+                            for output in cell.outputs:
+                                if output.output_type == "stream" and "text" in output:
+                                    if (
+                                        "Explicitly connected to runtime"
+                                        in output["text"]
+                                    ):
+                                        runtime_connected = True
+                                    if "GPU is available" in output["text"]:
+                                        has_gpu = True
 
                         # Extract all text outputs
                         for output in cell.outputs:
                             if output.output_type == "stream" and "text" in output:
                                 cell_outputs.append(output["text"])
+
+                                # Count status and log messages
+                                if (
+                                    "▼▼▼ EXECUTING CELL" in output["text"]
+                                    or "▲▲▲ CELL" in output["text"]
+                                ):
+                                    status_message_count += 1
+                                if "[Training]" in output["text"]:
+                                    log_message_count += 1
 
                 # Convert all outputs to a single string for easier searching
                 all_output = "\n".join(cell_outputs)
@@ -561,6 +736,7 @@ def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=
                 # Check for distinct markers that show up in notebook output cells
                 completed_marker = "NOTEBOOK EXECUTION COMPLETED" in all_output
                 training_finished_marker = "Training finished in" in all_output
+                error_marker = "Training encountered an error" in all_output
 
                 # Look for cell execution markers like: "▼▼▼ EXECUTING CELL 5/20 ▼▼▼"
                 import re
@@ -572,131 +748,193 @@ def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=
                     r"▲▲▲ CELL (\d+)/(\d+) COMPLETED", all_output
                 )
 
-                # Count status messages to understand progress
-                colab_status_count = all_output.count("[COLAB_STATUS]")
-                colab_log_count = all_output.count("[COLAB_LOG]")
+                # Check for changes to determine if notebook is active
+                status_changed = last_status_count != status_message_count
+                logs_changed = last_log_count != log_message_count
+                cells_changed = last_cell_count != executed_cells
 
-                # Extract the most recent output for debugging
-                status_pattern = (
-                    r"\[COLAB_STATUS\].*?:(.+?)(?=\[COLAB_STATUS\]|\[COLAB_LOG\]|$)"
-                )
-                status_matches = re.findall(status_pattern, all_output, re.DOTALL)
+                # If anything changed, update the "last update" time
+                if status_changed or logs_changed or cells_changed:
+                    last_update_time = time.time()
+                    is_running = True
 
+                # Determine current running status
                 current_cell = None
-                total_cells = None
+                for match in cell_execution_matches:
+                    current_cell = int(match[0])
 
-                if cell_execution_matches:
-                    # Get the most recent cell being executed
-                    current_cell, total_cells = map(int, cell_execution_matches[-1])
+                # Display status with detailed information
+                print(f"\n📊 Notebook Execution Status:", flush=True)
+                print(f"├─ Elapsed time: {elapsed_minutes:.1f} minutes", flush=True)
 
-                if cell_completion_matches:
-                    # Get the most recently completed cell
-                    last_completed, _ = map(int, cell_completion_matches[-1])
-                    if last_completed != last_cell_executed:
-                        last_cell_executed = last_completed
-                        print(
-                            f"✓ Cell {last_completed}/{total_cells if total_cells else '?'} completed"
-                        )
-
-                # Print detailed progress information every 2 minutes or when significant changes happen
-                current_time = time.time()
-                if current_time - last_debug_output_time > 120 or (  # Every 2 minutes
-                    current_cell and last_cell_executed != current_cell
-                ):
-
-                    print("\n📊 Notebook Execution Status:")
-                    print(f"├─ Elapsed time: {elapsed_seconds/60:.1f} minutes")
-                    print(f"├─ Executed cells: {executed_cells}")
-
-                    if current_cell and total_cells:
-                        progress_percent = (current_cell / total_cells) * 100
-                        print(
-                            f"├─ Progress: Cell {current_cell}/{total_cells} ({progress_percent:.1f}%)"
-                        )
+                # Runtime status
+                runtime_status = []
+                if runtime_connected:
+                    runtime_status.append("Connected to runtime ✓")
+                    if has_gpu:
+                        runtime_status.append("GPU available ✓")
                     else:
-                        print(f"├─ Status messages detected: {colab_status_count}")
-                        print(f"├─ Log messages detected: {colab_log_count}")
-
-                    # Show some recent output for debugging
-                    if status_matches:
-                        recent_status = status_matches[-1].strip()
-                        # Only print if it's different from last time
-                        if recent_status != last_seen_output:
-                            print(f"├─ Recent status: {recent_status}")
-                            last_seen_output = recent_status
-
-                    # Show the last chunk of output
-                    if cell_outputs:
-                        # Get the last chunk of output, clean it up and truncate
-                        recent_output = cell_outputs[-1].strip()
-                        if len(recent_output) > 500:
-                            recent_output = recent_output[-500:] + "..."
-                        print(f"└─ Output preview: \n{recent_output}")
-
-                    last_debug_output_time = current_time
-
-                # Check for authentication errors or token expiration
-                auth_error_markers = [
-                    "not have permission to get",
-                    "Authentication Required",
-                    "authenticate to access",
-                    "Token has been expired",
-                    "credentials have expired",
-                ]
-
-                for marker in auth_error_markers:
-                    if marker in all_output:
-                        print("\n🚨 Authentication error detected!")
+                        runtime_status.append("Using CPU")
+                else:
+                    if not startup_delay_warning_shown and elapsed_minutes > 2:
+                        print("\n⚠️ Runtime connection not detected yet...", flush=True)
                         print(
-                            "The authentication token may have expired after 60+ minutes of execution."
+                            "This may take a few minutes on first execution or during high Colab usage.",
+                            flush=True,
                         )
+                        print("You can check the status manually at:", flush=True)
                         print(
-                            "This is a known limitation when running long training jobs."
+                            f"https://colab.research.google.com/drive/{file_id}\n",
+                            flush=True,
                         )
-                        print("The notebook execution may have been interrupted.")
-                        print(
-                            f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
-                        )
-                        return "token_expired"
+                        startup_delay_warning_shown = True
 
-                # Check for successful completion
+                if runtime_status:
+                    print(f"├─ Runtime: {', '.join(runtime_status)}", flush=True)
+
+                # Progress information
+                if total_cells > 0:
+                    progress_percent = executed_cells / total_cells * 100
+                    print(
+                        f"├─ Progress: {executed_cells}/{total_cells} cells executed ({progress_percent:.1f}%)",
+                        flush=True,
+                    )
+                else:
+                    print(f"├─ Executed cells: {executed_cells}", flush=True)
+
+                # Current execution
+                if current_cell:
+                    print(
+                        f"├─ Currently executing: Cell {current_cell}/{total_cells}",
+                        flush=True,
+                    )
+
+                # Status messages and logs
+                print(f"├─ Status messages: {status_message_count}", flush=True)
+                print(f"├─ Log messages: {log_message_count}", flush=True)
+
+                # Last activity
+                inactive_minutes = (time.time() - last_update_time) / 60
+                if is_running and inactive_minutes > 3:
+                    print(
+                        f"├─ ⚠️ No activity for {inactive_minutes:.1f} minutes",
+                        flush=True,
+                    )
+
+                    # After 10 minutes of inactivity, provide more guidance
+                    if inactive_minutes > 10:
+                        print("\n⚠️ Execution appears to be stalled.", flush=True)
+                        print("Possible reasons:", flush=True)
+                        print(
+                            "1. Cell is processing a long-running task without output",
+                            flush=True,
+                        )
+                        print("2. Notebook encountered an error", flush=True)
+                        print("3. Colab runtime disconnected unexpectedly", flush=True)
+                        print("\nPlease check the notebook manually:", flush=True)
+                        print(
+                            f"https://colab.research.google.com/drive/{file_id}\n",
+                            flush=True,
+                        )
+
+                # Update counters for next loop
+                last_status_count = status_message_count
+                last_log_count = log_message_count
+                last_cell_count = executed_cells
+
+                # Check if execution is complete
                 if completed_marker or training_finished_marker:
-                    print("\n✅ Notebook execution completed successfully!")
+                    print("\n✅ Notebook execution completed successfully!", flush=True)
                     if training_finished_marker:
-                        # Try to extract training time
-                        training_time_pattern = r"Training finished in (.+?)(?:\.|$)"
+                        # Extract training time
                         training_time_match = re.search(
-                            training_time_pattern, all_output
+                            r"Training finished in (.*) minutes", all_output
                         )
                         if training_time_match:
                             print(
-                                f"Training completed in: {training_time_match.group(1)}"
+                                f"Training completed in {training_time_match.group(1)} minutes",
+                                flush=True,
                             )
                     return True
-            except Exception as parse_error:
-                print(f"Error parsing notebook: {parse_error}")
-                print("The notebook might not be fully processed by Colab yet.")
 
-            # Wait before checking again
+                if error_marker:
+                    print(
+                        "\n❌ Training encountered an error. Check the notebook for details.",
+                        flush=True,
+                    )
+                    print(
+                        f"Notebook URL: https://colab.research.google.com/drive/{file_id}\n",
+                        flush=True,
+                    )
+                    return False
+
+                # Check for token expiration or permission errors
+                if (
+                    "access_denied" in all_output
+                    or "Token has been expired" in all_output
+                ):
+                    print(
+                        "\n❌ Authentication token has expired after extended runtime.",
+                        flush=True,
+                    )
+                    print(
+                        "This is normal for long-running training jobs (token lifetime is ~60 minutes).",
+                        flush=True,
+                    )
+                    print(
+                        "The notebook is still executing in Colab, but we can no longer monitor it.",
+                        flush=True,
+                    )
+                    print(
+                        f"Please check the notebook manually: https://colab.research.google.com/drive/{file_id}",
+                        flush=True,
+                    )
+                    return True, True  # Execution started but token expired
+
+            except Exception as e:
+                print(f"Error parsing notebook content: {e}", flush=True)
+                traceback.print_exc()
+
+            # Wait before polling again
             time.sleep(poll_interval_seconds)
 
-        except HttpError as error:
-            if error.resp.status == 401:
-                print("\n🔑 Authentication token has expired!")
-                print("This can happen when running long training jobs (60+ minutes).")
-                print("The notebook execution may still be in progress.")
+        except HttpError as e:
+            # Handle API errors
+            if e.resp.status == 401 or e.resp.status == 403:
                 print(
-                    f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
+                    "\n❌ Authentication error: Access token has expired.", flush=True
                 )
-                return "token_expired"
+                print(
+                    "The notebook might still be running, but we can no longer monitor it.",
+                    flush=True,
+                )
+                print(
+                    f"Please check manually: https://colab.research.google.com/drive/{file_id}",
+                    flush=True,
+                )
+                return False, True  # Indicate token expired
             else:
-                print(f"Error checking notebook status: {error}")
-                # For other errors, wait and retry
+                print(f"API error while checking notebook status: {e}", flush=True)
+                print(f"Will retry in {poll_interval_seconds} seconds...", flush=True)
                 time.sleep(poll_interval_seconds)
 
         except Exception as e:
-            print(f"Unexpected error checking notebook status: {str(e)}")
+            print(f"Error while checking notebook status: {e}", flush=True)
+            print(f"Will retry in {poll_interval_seconds} seconds...", flush=True)
+            traceback.print_exc()
             time.sleep(poll_interval_seconds)
+
+    # Timeout reached
+    print(f"\n⚠️ Timeout reached after {timeout_minutes} minutes!", flush=True)
+    print(
+        "The notebook might still be executing but we'll stop monitoring.", flush=True
+    )
+    print(
+        f"Please check manually: https://colab.research.google.com/drive/{file_id}",
+        flush=True,
+    )
+
+    return False  # Timeout
 
 
 def download_from_drive(drive_service, file_id, output_path):
