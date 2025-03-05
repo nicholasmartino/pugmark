@@ -19,7 +19,7 @@ class EnhancedOutput:
         self.terminal = sys.stdout
         self.last_flush = time.time()
         self.buffer = ""
-        self.flush_interval = 0.5  # Flush every 0.5 seconds
+        self.flush_interval = 0.1  # Flush more frequently - every 0.1 seconds
         
     def write(self, message):
         self.terminal.write(message)
@@ -56,11 +56,19 @@ def log_status(message, important=False):
     if important:
         separator = "=" * 40
         print(f"\\n{separator}")
-        print(f"[STATUS] {timestamp}: {message}")
+        print(f"[COLAB_STATUS] {timestamp}: {message}")
         print(f"{separator}\\n")
     else:
-        print(f"[LOG] {timestamp}: {message}")
+        print(f"[COLAB_LOG] {timestamp}: {message}")
     sys.stdout.flush()
+
+# Print a large banner to make output very visible
+print(f"\\n{'*' * 80}")
+print("*" + " " * 78 + "*")
+print("*" + " COLAB EXECUTION STREAMING INITIALIZED ".center(78) + "*")
+print("*" + " " * 78 + "*")
+print(f"{'*' * 80}\\n")
+sys.stdout.flush()
 
 # Background thread to periodically print status updates
 def status_reporter():
@@ -76,7 +84,7 @@ def status_reporter():
             else:
                 progress = "Calculating..."
                 
-            log_status(f"Status: {status} | Progress: {progress} | Running for: {elapsed/60:.1f} minutes")
+            log_status(f"Status: {status} | Progress: {progress} | Running for: {elapsed/60:.1f} minutes", important=True)
             
             # Update last_update to show we're still alive
             execution_status["last_update"] = time.time()
@@ -84,7 +92,7 @@ def status_reporter():
         except Exception as e:
             print(f"Error in status reporter: {str(e)}")
         
-        time.sleep(30)  # Report status every 30 seconds
+        time.sleep(15)  # Report status more frequently - every 15 seconds
 
 # Start the status reporting thread
 threading.Thread(target=status_reporter, daemon=True).start()
@@ -109,14 +117,18 @@ def log_status(message, important=False):
     if important:
         separator = "=" * 40
         print(f"\\n{separator}")
-        print(f"[STATUS] {timestamp}: {message}")
+        print(f"[COLAB_STATUS] {timestamp}: {message}")
         print(f"{separator}\\n")
     else:
-        print(f"[LOG] {timestamp}: {message}")
+        print(f"[COLAB_LOG] {timestamp}: {message}")
     sys.stdout.flush()
 
-# Print runtime info
-log_status("RUNTIME INFORMATION", important=True)
+# Print runtime info with very visible banner
+print(f"\\n{'#' * 80}")
+print("#" + " COLAB RUNTIME INFORMATION ".center(78) + "#")
+print(f"{'#' * 80}\\n")
+sys.stdout.flush()
+
 !nvidia-smi  # Show GPU info if available
 !python --version  # Show Python version
 !hostname  # Show hostname
@@ -124,33 +136,53 @@ log_status("RUNTIME INFORMATION", important=True)
 
 # Get all cells in the notebook
 def get_notebook_cells():
-    shell = IPython.get_ipython().kernel.shell
-    notebook = shell.user_ns['_ih']
-    # Convert to a list, skipping non-integer indexes and empty cells
-    cells = []
-    for i in sorted([i for i in notebook.keys() if isinstance(i, int)]):
-        if i > 0 and notebook[i].strip():  # Skip cell 0 and empty cells
-            cells.append(notebook[i])
-    
-    # Skip the first two injected cells (logging and this autorun cell)
-    return cells[2:] if len(cells) > 2 else []
+    try:
+        shell = IPython.get_ipython().kernel.shell
+        notebook = shell.user_ns['_ih']
+        # Convert to a list, skipping non-integer indexes and empty cells
+        cells = []
+        for i in sorted([i for i in notebook.keys() if isinstance(i, int)]):
+            if i > 0 and notebook[i].strip():  # Skip cell 0 and empty cells
+                cells.append(notebook[i])
+        
+        # Skip the first two injected cells (logging and this autorun cell)
+        return cells[2:] if len(cells) > 2 else []
+    except Exception as e:
+        print(f"Error getting notebook cells: {str(e)}\\n{traceback.format_exc()}")
+        return []
 
 # Function to run all cells one by one
 def run_cells_one_by_one():
     log_status("Preparing to execute notebook cell by cell", important=True)
+    
+    # Print additional info to help diagnose issues
+    print(f"\\n{'=' * 50}")
+    print(f"IPython version: {IPython.__version__}")
+    print(f"Running in directory: {os.getcwd()}")
+    print(f"{'=' * 50}\\n")
+    
     time.sleep(2)
     
     # Make sure we're connected to the runtime
-    IPython.get_ipython().run_cell("from google.colab import runtime; runtime.connect()")
-    log_status("Connected to Colab runtime")
+    try:
+        IPython.get_ipython().run_cell("from google.colab import runtime; runtime.connect()")
+        log_status("Connected to Colab runtime")
+    except Exception as e:
+        log_status(f"Error connecting to runtime: {str(e)}", important=True)
     
     # Get cells to execute
     cells_to_run = get_notebook_cells()
-    log_status(f"Found {len(cells_to_run)} cells to execute")
+    log_status(f"Found {len(cells_to_run)} cells to execute", important=True)
     
     # Update global execution status
     execution_status["total_cells"] = len(cells_to_run)
     execution_status["current_status"] = "running"
+    
+    # Print cell count information
+    print(f"\\n{'=' * 50}")
+    print(f"TOTAL CELLS TO EXECUTE: {len(cells_to_run)}")
+    print(f"{'=' * 50}\\n")
+    sys.stdout.flush()
     
     cell_execution_times = []
     
@@ -161,10 +193,15 @@ def run_cells_one_by_one():
         execution_status["current_cell"] = cell_num
         execution_status["current_status"] = f"executing_cell_{cell_num}"
         
-        log_status(f"EXECUTING CELL {cell_num}/{len(cells_to_run)}", important=True)
+        # Print a very visible cell execution marker
+        print(f"\\n{'▼' * 80}")
+        print(f"▼▼▼ EXECUTING CELL {cell_num}/{len(cells_to_run)} ▼▼▼")
+        print(f"{'▼' * 80}")
+        
         # Print a truncated preview of the cell for debugging
         preview = cell_code.replace('\\n', ' ')[:100] + ('...' if len(cell_code) > 100 else '')
-        log_status(f"Cell content preview: {preview}")
+        print(f"Cell content preview: {preview}")
+        sys.stdout.flush()
         
         # Execute the cell
         try:
@@ -173,7 +210,11 @@ def run_cells_one_by_one():
             execution_time = time.time() - start_time
             cell_execution_times.append(execution_time)
             
-            log_status(f"CELL {cell_num}/{len(cells_to_run)} COMPLETED in {execution_time:.2f}s", important=True)
+            # Print a very visible cell completion marker
+            print(f"\\n{'▲' * 80}")
+            print(f"▲▲▲ CELL {cell_num}/{len(cells_to_run)} COMPLETED in {execution_time:.2f}s ▲▲▲")
+            print(f"{'▲' * 80}\\n")
+            sys.stdout.flush()
             
             # Update status after successful execution
             execution_status["current_status"] = f"completed_cell_{cell_num}"
@@ -183,8 +224,13 @@ def run_cells_one_by_one():
             
         except Exception as e:
             error_msg = f"Error executing cell {cell_num}: {str(e)}\\n{traceback.format_exc()}"
-            log_status(f"ERROR IN CELL {cell_num}/{len(cells_to_run)}", important=True)
-            log_status(error_msg)
+            
+            # Print a very visible error marker
+            print(f"\\n{'!' * 80}")
+            print(f"!!! ERROR IN CELL {cell_num}/{len(cells_to_run)} !!!")
+            print(error_msg)
+            print(f"{'!' * 80}\\n")
+            sys.stdout.flush()
             
             # Update status with error
             execution_status["current_status"] = "error"
@@ -197,20 +243,36 @@ def run_cells_one_by_one():
     if cell_execution_times:
         total_time = sum(cell_execution_times)
         avg_time = total_time / len(cell_execution_times)
-        log_status(f"EXECUTION SUMMARY", important=True)
-        log_status(f"Total execution time: {total_time:.2f}s")
-        log_status(f"Average cell execution time: {avg_time:.2f}s")
-        log_status(f"Fastest cell: {min(cell_execution_times):.2f}s")
-        log_status(f"Slowest cell: {max(cell_execution_times):.2f}s")
+        
+        print(f"\\n{'#' * 80}")
+        print(f"# EXECUTION SUMMARY ".ljust(79, '#'))
+        print(f"# Total execution time: {total_time:.2f}s".ljust(79, '#'))
+        print(f"# Average cell execution time: {avg_time:.2f}s".ljust(79, '#'))
+        print(f"# Fastest cell: {min(cell_execution_times):.2f}s".ljust(79, '#'))
+        print(f"# Slowest cell: {max(cell_execution_times):.2f}s".ljust(79, '#'))
+        print(f"{'#' * 80}\\n")
+        sys.stdout.flush()
     
     # Update final status
     execution_status["current_status"] = "completed"
-    log_status("NOTEBOOK EXECUTION COMPLETED", important=True)
+    
+    # Print completion banner
+    print(f"\\n{'*' * 80}")
+    print("*" + " " * 78 + "*")
+    print("*" + " NOTEBOOK EXECUTION COMPLETED ".center(78) + "*")
+    print("*" + " " * 78 + "*")
+    print(f"{'*' * 80}\\n")
+    sys.stdout.flush()
 
 # Run automatically with error handling
 try:
     run_cells_one_by_one()
 except Exception as e:
-    log_status(f"CRITICAL ERROR IN AUTORUN: {str(e)}", important=True)
-    log_status(traceback.format_exc())
+    # Print a very visible critical error banner
+    print(f"\\n{'!' * 80}")
+    print("!" + " CRITICAL ERROR IN AUTORUN ".center(78, '!') + "!")
+    print(f"{str(e)}")
+    print(traceback.format_exc())
+    print(f"{'!' * 80}\\n")
+    sys.stdout.flush()
 """

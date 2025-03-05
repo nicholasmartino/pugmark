@@ -7,67 +7,87 @@ This replaces the colab-cli dependency with direct API calls.
 import argparse
 import io
 import os
+import re
 import sys
 import time
 import traceback
 
-import nbformat
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
-
-# Import the notebook cells content
 try:
-    # First try direct import from same directory
-    from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
+    import nbformat
 
-    print("Successfully imported notebook cells from colab_cells.py", flush=True)
-except ImportError:
-    # If direct import fails, try adjusting the path
+    # Import the notebook cells content
     try:
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from colab_cells import AUTORUN_CELL, LOG_STREAMING_CELL
 
-        print("Successfully imported notebook cells via path adjustment", flush=True)
-    except ImportError as e:
-        print(f"Error importing colab_cells.py: {e}", flush=True)
+        COLAB_CELLS_IMPORTED = True
+    except ImportError:
+        print(
+            "WARNING: Could not import colab_cells.py - using default implementations"
+        )
+        COLAB_CELLS_IMPORTED = False
         LOG_STREAMING_CELL = """
-# This is a fallback log streaming cell
-print("Log streaming is not available - colab_cells.py could not be imported")
+# Default log streaming cell (colab_cells.py not found)
+import sys
+import time
+import datetime
+
+print("\\n" + "*" * 80)
+print("* COLAB EXECUTION STREAMING INITIALIZED (DEFAULT VERSION) *".center(78))
+print("*" * 80 + "\\n")
+sys.stdout.flush()
+
+print("[LOG] This is a basic version of the logging cell.")
+print("[LOG] For full functionality, make sure colab_cells.py is available.")
+sys.stdout.flush()
 """
+
         AUTORUN_CELL = """
-# This is a fallback autorun cell
-print("Autorun is not available - colab_cells.py could not be imported")
+# Default autorun cell (colab_cells.py not found)
+import IPython
+
+print("\\n" + "#" * 80)
+print("# COLAB RUNTIME INFORMATION (DEFAULT VERSION) #".center(78))
+print("#" * 80 + "\\n")
+sys.stdout.flush()
+
+# Show some basic system info
+!nvidia-smi
+!python --version
+!hostname
+
+print("\\n" + "*" * 80)
+print("* EXECUTING ALL NOTEBOOK CELLS *".center(78))
+print("*" * 80 + "\\n")
+sys.stdout.flush()
+
+# Run all cells
+IPython.get_ipython().run_cell("from google.colab import runtime; runtime.connect()")
+IPython.get_ipython().run_cell("%%capture\\n%run -i ../..")
+
+print("\\n" + "*" * 80)
+print("* NOTEBOOK EXECUTION COMPLETED *".center(78))
+print("*" * 80 + "\\n")
+sys.stdout.flush()
 """
+
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+
+    ALL_DEPENDENCIES_INSTALLED = True
+except ImportError as e:
+    print(f"ERROR: Missing dependency - {str(e)}")
+    print("\nPlease install the required dependencies using:")
+    print(
+        "pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib nbformat"
+    )
+    ALL_DEPENDENCIES_INSTALLED = False
 
 # Add early debugging prints
 print(f"Python version: {sys.version}", flush=True)
-print(f"Current directory: {os.getcwd()}", flush=True)
 print(f"Script path: {os.path.abspath(__file__)}", flush=True)
-
-try:
-    print("Importing required modules...")
-    import nbformat
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
-
-    print("All modules imported successfully")
-except ImportError as e:
-    print(f"ERROR importing modules: {e}")
-    traceback.print_exc()
-    with open("/tmp/colab_error.log", "w") as f:
-        f.write(f"Import error: {e}\n")
-        traceback.print_exc(file=f)
-    sys.exit(1)
-
-# Ensure prints are flushed immediately
-print("Setting up unbuffered output...", flush=True)
-(
-    sys.stdout.reconfigure(line_buffering=True)
-    if hasattr(sys.stdout, "reconfigure")
-    else None
-)
+print(f"Current directory: {os.getcwd()}", flush=True)
 
 
 def setup_argparse():
@@ -443,116 +463,184 @@ def create_colab_vm_and_execute(drive_service, file_id, machine_type):
     return colab_url, "colab_execution_log.txt"  # Return log file name for streaming
 
 
-def wait_for_execution(drive_service, file_id, log_file_name=None, timeout_minutes=180):
-    """Wait for the Colab notebook to finish execution by monitoring outputs directly."""
-    print(
-        f"Waiting for notebook execution to complete (timeout: {timeout_minutes} minutes)...",
-        flush=True,
-    )
+def wait_for_execution(service, file_id, timeout_minutes, poll_interval_seconds=30):
+    """
+    Wait for notebook execution to complete by checking the notebook content directly.
 
-    # Check if we're using a shared drive
-    shared_drive_id = os.environ.get("SHARED_DRIVE_ID")
-    params = {}
-    if shared_drive_id:
-        params["supportsAllDrives"] = True
+    This function monitors the execution progress by polling the notebook and looking for
+    specific markers that indicate completion or continued execution.
+
+    Args:
+        service: The Google Drive API service instance
+        file_id: The ID of the notebook file to monitor
+        timeout_minutes: Maximum time to wait (in minutes)
+        poll_interval_seconds: How often to check the notebook status (in seconds)
+
+    Returns:
+        True if execution completed successfully, False if timeout occurred,
+        "token_expired" if token expiration is detected
+    """
+    print("\nWaiting for Colab notebook execution to complete...")
+    print(
+        f"Will poll every {poll_interval_seconds} seconds for up to {timeout_minutes} minutes"
+    )
+    print(f"Notebook ID: {file_id}")
 
     start_time = time.time()
-    elapsed_minutes = 0
-    last_cell_count = 0
-    completion_markers = [
-        "NOTEBOOK EXECUTION COMPLETED",
-        "Training finished in",
-        "✅ Notebook execution completed successfully",
-    ]
+    timeout_seconds = timeout_minutes * 60
 
-    # Poll the notebook content directly to monitor execution
-    while elapsed_minutes < timeout_minutes:
-        time.sleep(60)  # Check every minute
-        elapsed_minutes = (time.time() - start_time) / 60
-        print(f"Elapsed time: {elapsed_minutes:.1f} minutes", flush=True)
+    # Keep track of last observed output markers
+    last_cell_executed = None
+    last_seen_output = None
+    last_debug_output_time = time.time() - 120  # Start with printing debug output
 
-        # Get the notebook content
+    while True:
+        # Check if we've exceeded timeout
+        elapsed_seconds = time.time() - start_time
+        if elapsed_seconds > timeout_seconds:
+            print(f"\n⚠️ Timeout of {timeout_minutes} minutes exceeded!")
+            print(f"The notebook execution may still be in progress.")
+            print(
+                f"You can check the notebook at: https://colab.research.google.com/drive/{file_id}"
+            )
+            return False
+
         try:
-            response = (
-                drive_service.files().get_media(fileId=file_id, **params).execute()
+            # Get the current notebook content
+            request = service.files().export(fileId=file_id, mimeType="text/html")
+            notebook_html = request.execute().decode("utf-8")
+
+            # Check for distinct markers that show up in notebook output cells
+            completed_marker = "NOTEBOOK EXECUTION COMPLETED" in notebook_html
+            training_finished_marker = "Training finished in" in notebook_html
+
+            # Look for cell execution markers like: "▼▼▼ EXECUTING CELL 5/20 ▼▼▼"
+            cell_execution_matches = re.findall(
+                r"▼▼▼ EXECUTING CELL (\d+)/(\d+) ▼▼▼", notebook_html
+            )
+            cell_completion_matches = re.findall(
+                r"▲▲▲ CELL (\d+)/(\d+) COMPLETED", notebook_html
             )
 
-            if response:
-                notebook = nbformat.reads(response.decode("utf-8"), as_version=4)
+            # Count status messages to understand progress
+            colab_status_count = notebook_html.count("[COLAB_STATUS]")
+            colab_log_count = notebook_html.count("[COLAB_LOG]")
 
-                # Look for output cells with status updates
-                cell_outputs = []
-                executed_cells = 0
+            # Extract the most recent output for debugging
+            status_pattern = (
+                r"\[COLAB_STATUS\].*?:(.+?)(?=\[COLAB_STATUS\]|\[COLAB_LOG\]|$)"
+            )
+            status_matches = re.findall(status_pattern, notebook_html, re.DOTALL)
 
-                for cell in notebook.cells:
-                    if (
-                        cell.cell_type == "code"
-                        and hasattr(cell, "outputs")
-                        and cell.outputs
-                    ):
-                        executed_cells += 1
+            current_cell = None
+            total_cells = None
 
-                        # Extract all text outputs
-                        for output in cell.outputs:
-                            if output.output_type == "stream" and "text" in output:
-                                cell_outputs.append(output["text"])
+            if cell_execution_matches:
+                # Get the most recent cell being executed
+                current_cell, total_cells = map(int, cell_execution_matches[-1])
 
-                # Print any interesting progress info
-                if executed_cells > last_cell_count:
+            if cell_completion_matches:
+                # Get the most recently completed cell
+                last_completed, _ = map(int, cell_completion_matches[-1])
+                if last_completed != last_cell_executed:
+                    last_cell_executed = last_completed
                     print(
-                        f"Progress update: {executed_cells} cells have been executed",
-                        flush=True,
+                        f"✓ Cell {last_completed}/{total_cells if total_cells else '?'} completed"
                     )
-                    last_cell_count = executed_cells
 
-                # Look for completion markers in the outputs
-                for output in cell_outputs:
-                    for marker in completion_markers:
-                        if marker in output:
-                            print(
-                                "\n==== NOTEBOOK EXECUTION COMPLETED ====", flush=True
-                            )
-                            print(f"Found completion marker: '{marker}'", flush=True)
-                            return True
+            # Print detailed progress information every 2 minutes or when significant changes happen
+            current_time = time.time()
+            if current_time - last_debug_output_time > 120 or (  # Every 2 minutes
+                current_cell and last_cell_executed != current_cell
+            ):
 
-                # Check if execution appears to be stalled
-                if elapsed_minutes > 15 and executed_cells <= 3:
-                    print("\n==== WARNING: EXECUTION MAY BE STALLED ====", flush=True)
+                print("\n📊 Notebook Execution Status:")
+                print(f"├─ Elapsed time: {elapsed_seconds/60:.1f} minutes")
+
+                if current_cell and total_cells:
+                    progress_percent = (current_cell / total_cells) * 100
                     print(
-                        f"Only {executed_cells} cells executed after {elapsed_minutes:.1f} minutes",
-                        flush=True,
+                        f"├─ Progress: Cell {current_cell}/{total_cells} ({progress_percent:.1f}%)"
                     )
-                    print("Check Colab URL to verify execution status", flush=True)
+                else:
+                    print(f"├─ Status messages detected: {colab_status_count}")
+                    print(f"├─ Log messages detected: {colab_log_count}")
+
+                # Show some recent output for debugging
+                if status_matches:
+                    recent_status = status_matches[-1].strip()
+                    # Only print if it's different from last time
+                    if recent_status != last_seen_output:
+                        print(f"├─ Recent status: {recent_status}")
+                        last_seen_output = recent_status
+
+                # Extract any visible output
+                output_pattern = r"<pre.*?>(.*?)</pre>"
+                output_matches = re.findall(output_pattern, notebook_html, re.DOTALL)
+                if output_matches:
+                    # Get the last chunk of output, clean it up and truncate
+                    recent_output = output_matches[-1].strip()
+                    if len(recent_output) > 500:
+                        recent_output = recent_output[-500:] + "..."
+                    print(f"└─ Output preview: \n{recent_output}")
+
+                last_debug_output_time = current_time
+
+            # Check for authentication errors or token expiration
+            auth_error_markers = [
+                "not have permission to get",
+                "Authentication Required",
+                "authenticate to access",
+                "Token has been expired",
+                "credentials have expired",
+            ]
+
+            for marker in auth_error_markers:
+                if marker in notebook_html:
+                    print("\n🚨 Authentication error detected!")
+                    print(
+                        "The authentication token may have expired after 60+ minutes of execution."
+                    )
+                    print("This is a known limitation when running long training jobs.")
+                    print("The notebook execution may have been interrupted.")
+                    print(
+                        f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
+                    )
+                    return "token_expired"
+
+            # Check for successful completion
+            if completed_marker or training_finished_marker:
+                print("\n✅ Notebook execution completed successfully!")
+                if training_finished_marker:
+                    # Try to extract training time
+                    training_time_pattern = r"Training finished in (.+?)(?:\.|$)"
+                    training_time_match = re.search(
+                        training_time_pattern, notebook_html
+                    )
+                    if training_time_match:
+                        print(f"Training completed in: {training_time_match.group(1)}")
+                return True
+
+            # Wait before checking again
+            time.sleep(poll_interval_seconds)
+
+        except HttpError as error:
+            if error.resp.status == 401:
+                print("\n🔑 Authentication token has expired!")
+                print("This can happen when running long training jobs (60+ minutes).")
+                print("The notebook execution may still be in progress.")
+                print(
+                    f"Please check the notebook manually at: https://colab.research.google.com/drive/{file_id}"
+                )
+                return "token_expired"
+            else:
+                print(f"Error checking notebook status: {error}")
+                # For other errors, wait and retry
+                time.sleep(poll_interval_seconds)
 
         except Exception as e:
-            print(f"Error checking notebook status: {e}", flush=True)
-
-            # Check if it's an authentication error
-            if "credentials" in str(e).lower() and "refresh" in str(e).lower():
-                print("\n==== AUTHENTICATION TOKEN EXPIRED ====", flush=True)
-                print(
-                    "The access token has expired after 60+ minutes of running.",
-                    flush=True,
-                )
-                print(
-                    "The notebook is still executing on Colab, but this script can no longer monitor it.",
-                    flush=True,
-                )
-                print(
-                    "Please check the notebook manually using the Colab URL provided above.",
-                    flush=True,
-                )
-                print("==== TRAINING CONTINUES IN COLAB ====\n", flush=True)
-
-                # Return a special status that indicates we can't monitor anymore but execution continues
-                return "token_expired"
-
-    # If we've reached the timeout
-    print(
-        f"\n==== NOTEBOOK EXECUTION TIMEOUT ({timeout_minutes} MINUTES) ====",
-        flush=True,
-    )
-    return False
+            print(f"Unexpected error checking notebook status: {str(e)}")
+            time.sleep(poll_interval_seconds)
 
 
 def download_from_drive(drive_service, file_id, output_path):
@@ -594,20 +682,21 @@ def cleanup(drive_service, file_id, temp_file=None):
 
 
 def main():
-    """Main entry point for the script."""
-    # Set up argument parsing to match the original interface
+    """
+    Main function to parse arguments and execute notebook
+    """
+    # Check if all dependencies are installed
+    if not ALL_DEPENDENCIES_INSTALLED:
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(
-        description="Execute notebook in Colab and download results"
+        description="Upload a notebook to Google Drive and execute it on Colab"
     )
-    parser.add_argument("notebook_path", help="Path to notebook file")
+    parser.add_argument("notebook_path", help="Path to the notebook file to execute")
     parser.add_argument(
-        "--params",
-        help="Parameters to inject into the notebook in format PARAM1=VALUE1,PARAM2=VALUE2",
-        default="",
+        "--checkpoint", help="Path to the checkpoint directory for training"
     )
-    parser.add_argument(
-        "--output", dest="output", help="Path to save executed notebook", default=None
-    )
+    parser.add_argument("--epochs", type=int, help="Number of epochs for training")
     parser.add_argument(
         "--timeout",
         type=int,
@@ -616,118 +705,70 @@ def main():
     )
     parser.add_argument(
         "--machine-type",
-        dest="machine_type",
         choices=["CPU", "GPU", "TPU"],
         default="GPU",
         help="Colab machine type (CPU, GPU, TPU)",
     )
-    parser.add_argument(
-        "--no-browser",
-        dest="no_browser",
-        action="store_true",
-        help="Don't open browser to check execution",
-    )
     args = parser.parse_args()
 
-    # If output path isn't specified, create one
-    if args.output is None:
-        filename, ext = os.path.splitext(args.notebook_path)
-        args.output = f"{filename}_executed{ext}"
+    print(f"Notebook: {args.notebook_path}")
+    print(f"Checkpoint: {args.checkpoint}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Timeout: {args.timeout} minutes")
+    print(f"Machine type: {args.machine_type}")
 
-    print("=== Starting Colab Execution Script ===", flush=True)
-    print(f"Python version: {sys.version}", flush=True)
-    print(f"Current directory: {os.getcwd()}", flush=True)
-    print(f"Script path: {os.path.abspath(__file__)}", flush=True)
+    # Set up environment variables for notebook execution
+    if args.checkpoint:
+        os.environ["CHECKPOINT_PATH"] = args.checkpoint
+    if args.epochs:
+        os.environ["EPOCHS"] = str(args.epochs)
 
-    print("Setting up unbuffered output...", flush=True)
+    # Setup Google Drive API
+    creds = authenticate()
+    drive_service = build("drive", "v3", credentials=creds)
 
+    # Upload the notebook to Google Drive
+    file_id = upload_to_drive(drive_service, args.notebook_path)
+
+    if not file_id:
+        print("Failed to upload notebook to Google Drive.")
+        sys.exit(1)
+
+    # Create Colab VM and execute the notebook
+    colab_url, log_file_name = create_colab_vm_and_execute(
+        drive_service, file_id, args.machine_type
+    )
+
+    # Wait for execution to complete
     try:
-        # Upload notebook to drive
-        print("\n=== STEP 1: Uploading notebook to Google Drive ===", flush=True)
+        # Print the Colab URL
+        print(
+            f"Notebook is now executing on Colab: {colab_url}",
+            flush=True,
+        )
 
-        # Authenticate with Google Drive
-        _, drive_service = authenticate()
+        # Wait for the notebook to finish executing and monitor its outputs
+        status = wait_for_execution(
+            drive_service,
+            file_id,
+            timeout_minutes=args.timeout,
+        )
 
-        # Inject parameters if provided
-        temp_notebook_path = args.notebook_path
-        if args.params:
-            print(f"Injecting parameters into notebook: {args.params}", flush=True)
-            temp_notebook_path = inject_parameters(args.notebook_path, args.params)
-
-        file_id = upload_to_drive(drive_service, temp_notebook_path)
-
-        if file_id:
-            # Execute notebook
-            print("\n=== STEP 2: Executing notebook on Colab ===", flush=True)
-            colab_url, log_file_name = create_colab_vm_and_execute(
-                drive_service, file_id, args.machine_type
-            )
-
-            # Wait for execution
-            print("\n=== STEP 3: Waiting for execution to complete ===", flush=True)
-            execution_complete = wait_for_execution(
-                drive_service,
-                file_id,
-                log_file_name=log_file_name,
-                timeout_minutes=args.timeout,
-            )
-
-            # Download results
-            print("\n=== STEP 4: Downloading executed notebook ===", flush=True)
-            download_success = download_from_drive(drive_service, file_id, args.output)
-
-            if execution_complete is True:
-                print("\n✅ Notebook execution completed successfully!", flush=True)
-            elif execution_complete == "token_expired":
-                print(
-                    "\n⚠️ Authentication token expired, but notebook execution continues on Colab.",
-                    flush=True,
-                )
-                print(
-                    "   The notebook was downloaded in its current state.", flush=True
-                )
-                print(
-                    "   Check the notebook manually via the Colab URL for final results.",
-                    flush=True,
-                )
-                # Still consider this a successful run since the notebook is still executing
-                if download_success:
-                    execution_complete = True
-            else:
-                print("\n⚠️ Notebook execution timed out or had errors.", flush=True)
-                print(
-                    "   The notebook was downloaded in its current state.", flush=True
-                )
-                print(
-                    "   You may need to check the notebook for errors and completion status.",
-                    flush=True,
-                )
-
-            print(f"\nExecuted notebook saved to: {args.output}", flush=True)
-
-            # Information for manual access
-            print("\n=== ACCESS INFORMATION ===", flush=True)
-            print(f"Colab URL: {colab_url}", flush=True)
-            print(
-                "You can always access this notebook through Google Drive or Colab",
-                flush=True,
-            )
-
-            # Clean up temporary files if needed
-            if temp_notebook_path != args.notebook_path:
-                cleanup(drive_service, file_id, temp_file=temp_notebook_path)
-
-            return 0
+        # Handle different return values
+        if status == "token_expired":
+            print("Execution continued in Colab after authentication token expired.")
+            print("Please check the notebook URL to view the complete results.")
+            sys.exit(0)  # Exit with success as training continues in Colab
+        elif status:
+            print("Notebook execution completed successfully!")
+            sys.exit(0)
         else:
-            print(
-                "Failed to upload notebook to Drive. See error messages above.",
-                flush=True,
-            )
+            print("Notebook execution did not complete within the timeout period.")
+            print("Check the notebook URL to view current progress.")
             sys.exit(1)
 
     except Exception as e:
-        print(f"Error: {e}", flush=True)
-        traceback.print_exc()
+        print(f"An error occurred: {e}")
         sys.exit(1)
 
 
