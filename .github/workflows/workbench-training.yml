@@ -1,21 +1,31 @@
-name: "Vertex AI GPU Training"
+name: "Vertex AI Workbench Training"
 
 on:
   workflow_dispatch:
     inputs:
-      machine_type:
-        description: 'Machine type for training'
+      instance_name:
+        description: 'Vertex AI Workbench instance name'
         required: true
+        type: string
+      create_instance:
+        description: 'Create a new instance if it does not exist'
+        required: false
+        default: true
+        type: boolean
+      machine_type:
+        description: 'Machine type for the instance'
+        required: false
         default: 'n1-standard-8'
         type: choice
         options:
+          - 'n1-standard-4'
           - 'n1-standard-8'
           - 'n1-standard-16'
           - 'n1-highmem-8'
           - 'n1-highmem-16'
       accelerator_type:
         description: 'GPU accelerator type'
-        required: true
+        required: false
         default: 'NVIDIA_TESLA_T4'
         type: choice
         options:
@@ -25,7 +35,7 @@ on:
           - 'NVIDIA_TESLA_P4'
       accelerator_count:
         description: 'Number of GPUs'
-        required: true
+        required: false
         default: '1'
         type: choice
         options:
@@ -33,16 +43,32 @@ on:
           - '2'
           - '4'
           - '8'
+      delete_after_training:
+        description: 'Delete the instance after training completes (only if created by this workflow)'
+        required: false
+        default: false
+        type: boolean
+      epochs:
+        description: 'Number of training epochs'
+        required: false
+        default: '100'
+        type: string
+      batch_size:
+        description: 'Training batch size'
+        required: false
+        default: '1'
+        type: string
 
 env:
   REGION: "us-central1"
+  ZONE: "us-central1-a"
   SERVICE_ACCOUNT: "github-service-account"
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
   TIMEOUT: "3600s"
 
 jobs:
-  submit-vertex-training:
+  run-workbench-training:
     runs-on: "ubuntu-latest"
 
     permissions:
@@ -78,20 +104,24 @@ jobs:
         with:
           python-version: "3.10"
 
-      # Install Google Cloud AI Platform SDK
-      - name: "Install Google Cloud AI Platform SDK"
+      # Make scripts executable
+      - name: "Make scripts executable"
         run: |
-          pip install google-cloud-aiplatform
+          chmod +x ./scripts/run_on_workbench.sh
+          chmod +x ./scripts/vertex_workbench_execute.py
 
-      # Make script executable
-      - name: "Make script executable"
-        run: chmod +x ./scripts/vertex_ai_submit_job.sh
-
-      # Submit training job to Vertex AI
-      - name: "Submit training job to Vertex AI"
-        run: ./scripts/vertex_ai_submit_job.sh
+      # Submit training job to Vertex AI Workbench
+      - name: "Run training on Vertex AI Workbench"
+        run: ./scripts/run_on_workbench.sh
         env:
           GCP_PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION: ${{ env.REGION }}
+          ZONE: ${{ env.ZONE }}
+          WORKBENCH_INSTANCE: ${{ github.event.inputs.instance_name }}
+          CREATE_INSTANCE: ${{ github.event.inputs.create_instance }}
           MACHINE_TYPE: ${{ github.event.inputs.machine_type }}
           ACCELERATOR_TYPE: ${{ github.event.inputs.accelerator_type }}
-          ACCELERATOR_COUNT: ${{ github.event.inputs.accelerator_count }} 
+          ACCELERATOR_COUNT: ${{ github.event.inputs.accelerator_count }}
+          DELETE_AFTER_TRAINING: ${{ github.event.inputs.delete_after_training }}
+          EPOCHS: ${{ github.event.inputs.epochs }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }} 
