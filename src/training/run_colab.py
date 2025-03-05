@@ -6,6 +6,7 @@ This replaces the colab-cli dependency with direct API calls.
 
 import argparse
 import io
+import json
 import os
 import sys
 import time
@@ -461,9 +462,11 @@ def wait_for_execution(
     start_time = time.time()
     elapsed_minutes = 0
     log_file_id = None
+    status_file_id = None
     last_log_position = 0
+    status_file_name = "colab_execution_status.json"
 
-    # First, try to find the log file in the same folder as the notebook
+    # First, try to find the log file and status file in the same folder as the notebook
     try:
         # Get the parent folder of the notebook
         file_info = (
@@ -483,22 +486,109 @@ def wait_for_execution(
                 .execute()
             )
 
-            log_files = results.get("files", [])
-            if log_files:
-                log_file_id = log_files[0]["id"]
+            if results.get("files"):
+                log_file_id = results["files"][0]["id"]
                 print(f"Found log file with ID: {log_file_id}", flush=True)
-                print("\n==== BEGINNING LOG STREAM ====", flush=True)
+
+            # Search for the status file
+            query = f"name = '{status_file_name}' and '{parent_id}' in parents and trashed = false"
+            results = (
+                drive_service.files()
+                .list(q=query, spaces="drive", fields="files(id, name)", **params)
+                .execute()
+            )
+
+            if results.get("files"):
+                status_file_id = results["files"][0]["id"]
+                print(f"Found status file with ID: {status_file_id}", flush=True)
+
     except Exception as e:
-        print(f"Error finding log file: {e}", flush=True)
-        print("Will continue without log streaming", flush=True)
+        print(f"Error finding log or status file: {e}", flush=True)
 
-    # Loop to check the status and stream logs
+    # Wait for execution to complete by checking the log file and status
     while elapsed_minutes < timeout_minutes:
-        # Sleep first to give a chance for execution to start
         time.sleep(60)  # Check every minute
-
         elapsed_minutes = (time.time() - start_time) / 60
         print(f"Elapsed time: {elapsed_minutes:.1f} minutes", flush=True)
+
+        # First check status file if available
+        if status_file_id:
+            try:
+                # Download the status file content
+                response = (
+                    drive_service.files()
+                    .get_media(fileId=status_file_id, **params)
+                    .execute()
+                )
+
+                if response:
+                    status_content = json.loads(response.decode("utf-8"))
+
+                    # Print status information
+                    current_cell = status_content.get("current_cell", 0)
+                    total_cells = status_content.get("total_cells", 0)
+                    status = status_content.get("status", "unknown")
+                    last_update = status_content.get("last_update", 0)
+                    now = time.time()
+
+                    # Calculate time since last update
+                    minutes_since_update = (
+                        (now - last_update) / 60 if last_update else 0
+                    )
+
+                    print(f"Status: {status}", flush=True)
+                    if total_cells > 0:
+                        print(
+                            f"Progress: Cell {current_cell}/{total_cells} ({(current_cell/total_cells*100):.1f}%)",
+                            flush=True,
+                        )
+
+                    # Check if execution is completed
+                    if status == "completed":
+                        print("\n==== NOTEBOOK EXECUTION COMPLETED ====", flush=True)
+                        return True
+
+                    # Check for errors
+                    if status == "error":
+                        error = status_content.get("error", "Unknown error")
+                        print(
+                            f"\n==== NOTEBOOK EXECUTION ERROR ====\n{error}", flush=True
+                        )
+                        # Continue execution to get more logs
+
+                    # Check for stalled execution (no updates for 10 minutes)
+                    if minutes_since_update > 10:
+                        print(
+                            f"\n==== WARNING: No status updates for {minutes_since_update:.1f} minutes ====",
+                            flush=True,
+                        )
+
+            except Exception as e:
+                print(f"Error checking status file: {e}", flush=True)
+
+                # Check if it's an authentication error
+                if "credentials" in str(e).lower() and "refresh" in str(e).lower():
+                    print("\n==== AUTHENTICATION TOKEN EXPIRED ====", flush=True)
+                    print(
+                        "The access token has expired after 60+ minutes of running.",
+                        flush=True,
+                    )
+                    print(
+                        "The notebook is still executing on Colab, but this script can no longer monitor it.",
+                        flush=True,
+                    )
+                    print(
+                        "Please check the notebook manually using the Colab URL provided above.",
+                        flush=True,
+                    )
+                    print(
+                        "To prevent this in future runs, increase 'access_token_lifetime' in the workflow YAML.",
+                        flush=True,
+                    )
+                    print("==== TRAINING CONTINUES IN COLAB ====\n", flush=True)
+
+                    # Return a special status that indicates we can't monitor anymore but execution continues
+                    return "token_expired"
 
         # Stream logs if we have a log file
         if log_file_id:
@@ -519,14 +609,38 @@ def wait_for_execution(
                         print(new_content, end="", flush=True)
                         last_log_position = len(log_content)
 
-                        # Check for completion message in the logs
-                        if "Execution complete!" in new_content:
+                        # Check for completion message in the logs as fallback
+                        if "NOTEBOOK EXECUTION COMPLETED" in new_content:
                             print(
                                 "\n==== NOTEBOOK EXECUTION COMPLETED ====", flush=True
                             )
                             return True
             except Exception as e:
                 print(f"Error streaming logs: {e}", flush=True)
+
+                # Check if it's an authentication error
+                if "credentials" in str(e).lower() and "refresh" in str(e).lower():
+                    print("\n==== AUTHENTICATION TOKEN EXPIRED ====", flush=True)
+                    print(
+                        "The access token has expired after 60+ minutes of running.",
+                        flush=True,
+                    )
+                    print(
+                        "The notebook is still executing on Colab, but this script can no longer monitor it.",
+                        flush=True,
+                    )
+                    print(
+                        "Please check the notebook manually using the Colab URL provided above.",
+                        flush=True,
+                    )
+                    print(
+                        "To prevent this in future runs, increase 'access_token_lifetime' in the workflow YAML.",
+                        flush=True,
+                    )
+                    print("==== TRAINING CONTINUES IN COLAB ====\n", flush=True)
+
+                    # Return a special status that indicates we can't monitor anymore but execution continues
+                    return "token_expired"
 
         # Check the notebook outputs as a fallback
         try:

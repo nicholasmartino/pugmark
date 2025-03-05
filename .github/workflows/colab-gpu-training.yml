@@ -38,7 +38,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: github-service-account@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-          access_token_lifetime: 14400s
+          access_token_lifetime: 3600s
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           token_format: access_token
           access_token_scopes: >-

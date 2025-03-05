@@ -1,6 +1,8 @@
 import datetime
+import logging
 import os
 import time
+from pathlib import Path
 
 import gcsfs
 import tensorflow as tf
@@ -8,7 +10,6 @@ from AuthUtils import auth_client_from_cloud, auth_client_locally
 from Discriminator import Discriminator, calculate_discriminator_loss
 from Generator import Generator, calculate_generator_loss, generate_images
 from Globals import *
-from IPython import display
 from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
@@ -200,43 +201,70 @@ def fit(
     checkpoint_directory,
     epochs,
 ):
+    # Set up logging to file
+    log_dir = Path(checkpoint_directory).parent / "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = log_dir / "training_log.txt"
+
+    # Configure logging to write to both file and console
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(message)s",
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
+    )
+
+    logging.info(f"Starting training for {epochs} epochs")
+    logging.info(f"Checkpoints will be saved to: {checkpoint_directory}")
+    logging.info(f"Log file location: {log_file}")
+
     checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
+    start = time.time()
 
     for epoch in range(epochs):
         start = time.time()
 
-        display.clear_output(wait=True)
+        logging.info(f"Epoch {epoch+1}/{epochs} - Starting")
 
-        for ex_input, ex_target in test_dataset.take(1):
-            generate_images(generator, ex_input, ex_target)
-        print("Epoch: ", epoch)
+        # Test on example batch at start of epoch
+        for example_input, example_target in test_dataset.take(1):
+            generate_images(generator, example_input, example_target)
+
+        logging.info(f"Epoch: {epoch}")
 
         # Train
+        steps_total = 0
         for n, (input_image, target) in train_dataset.enumerate():
             print(".", end="")
+            steps_total = n + 1
             if (n + 1) % 100 == 0:
                 print()
+                logging.info(f"  - Completed {n+1} steps")
             train_step(input_image, target, epoch)
 
         # saving (checkpoint) the model every 20 epochs
         if (epoch + 1) % 20 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
+            logging.info(f"Checkpoint saved at epoch {epoch+1}")
 
-        print(
-            "Time taken for epoch {} is {} sec\n".format(epoch + 1, time.time() - start)
-        )
+        epoch_time = time.time() - start
+        logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
+        logging.info(f"Steps completed: {steps_total}")
+
+    # Final checkpoint
     checkpoint.save(file_prefix=checkpoint_prefix)
+    logging.info(f"Training complete - final checkpoint saved")
 
 
 def train():
     # Add verification checks
-    print("TensorFlow version:", tf.__version__)
-    print("GPU devices:", tf.config.list_physical_devices("GPU"))
+    logging.info(f"TensorFlow version: {tf.__version__}")
+    gpu_devices = tf.config.list_physical_devices("GPU")
+    logging.info(f"GPU devices: {gpu_devices}")
 
     # Force GPU placement test
     with tf.device("/GPU:0"):
         test_tensor = tf.random.normal([2, 2])
-        print("\nTensor device test:", test_tensor.device)
+        logging.info(f"Tensor device test: {test_tensor.device}")
 
     # Rest of original training code
     fit(train_dataset, test_dataset, generator, checkpoint, checkpoint_dir, EPOCHS)
@@ -245,4 +273,4 @@ def train():
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 
     process_time = datetime.datetime.now() - start_time
-    print(f"Training finished in {process_time/60} minutes")
+    logging.info(f"Training finished in {process_time/60} minutes")
