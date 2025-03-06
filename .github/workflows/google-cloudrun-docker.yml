@@ -39,6 +39,7 @@ on:
       - 'src/training/**'
       - 'scripts/gcloud_submit_job.sh'
       - '.github/workflows/google-cloudrun-docker.yml'
+      - 'requirements.txt'
 
 env:
   REGION: "us-central1"
