@@ -1,6 +1,5 @@
 import tensorflow as tf
-
-from src.training.Globals import IMG_HEIGHT, IMG_WIDTH
+from Globals import IMG_HEIGHT, IMG_WIDTH
 
 
 def resize(input_image, real_image, height, width):
