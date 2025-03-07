@@ -31,15 +31,6 @@ name: "Deploy and Execute Training Pipeline"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'src/training/**'
-      - 'scripts/gcloud_submit_job.sh'
-      - '.github/workflows/google-cloudrun-docker.yml'
-      - 'requirements.txt'
 
 env:
   REGION: "us-central1"
