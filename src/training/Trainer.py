@@ -6,7 +6,6 @@ from pathlib import Path
 
 import gcsfs
 import tensorflow as tf
-from AuthUtils import authenticate_cloud
 from Discriminator import Discriminator, calculate_discriminator_loss
 from Generator import Generator, calculate_generator_loss, generate_images
 from Globals import *
@@ -15,8 +14,6 @@ from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
-
-authenticate_cloud()
 
 # Configure GCS access (choose one method below)
 # Option 1: If running locally, set credentials
