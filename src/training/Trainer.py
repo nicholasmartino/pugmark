@@ -6,21 +6,24 @@ from pathlib import Path
 
 import gcsfs
 import tensorflow as tf
-from AuthUtils import auth_client_from_cloud, auth_client_locally
+from AuthUtils import authenticate_cloud
 from Discriminator import Discriminator, calculate_discriminator_loss
 from Generator import Generator, calculate_generator_loss, generate_images
 from Globals import *
+from google.cloud import storage
 from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
 
-if os.getenv("CLOUD_RUN_JOB"):  # This environment variable is present in Cloud Run
-    print("Running in Google Cloud environment")
-    client = auth_client_from_cloud()
-else:
-    print("Running locally")
-    client = auth_client_locally()
+authenticate_cloud()
+
+# Configure GCS access (choose one method below)
+# Option 1: If running locally, set credentials
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
+
+# Add this before any GCS operations
+client = storage.Client.from_service_account_json(SECRETS_PATH)
 
 # Verify bucket access
 bucket = client.get_bucket("metro-vancouver-regional-district")

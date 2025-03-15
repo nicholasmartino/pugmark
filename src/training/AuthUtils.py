@@ -1,105 +1,44 @@
 import os
 
-from dotenv import load_dotenv
-from google.cloud import storage
+from Globals import SECRETS_PATH
+from google.cloud import secretmanager, storage
 
 
-def auth_client_from_cloud():
-    """Get storage client when running in Google Cloud environment."""
+def authenticate_cloud():
+    """Retrieve credentials from Secret Manager."""
     try:
-        project_id = "pugmark-448918"
-        print(f"Creating storage client for project {project_id}")
+        # Create the Secret Manager client
+        client = secretmanager.SecretManagerServiceClient()
 
-        # When running on Cloud Run, use default credentials
-        return storage.Client(project=project_id)
-    except Exception as e:
-        print(f"Error creating storage client: {e}")
-        raise
-
-
-def auth_client_github_actions():
-    """Get storage client when running in GitHub Actions environment."""
-    try:
-        print(
-            "Creating storage client using Application Default Credentials (GitHub Actions)"
+        # Build the resource name
+        name = (
+            f"projects/pugmark-448918/secrets/pugmark-service-account/versions/latest"
         )
 
-        # Check if we have a credentials file
-        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if creds_path and os.path.exists(creds_path):
-            print(f"Using credentials file: {creds_path}")
+        # Access the secret
+        response = client.access_secret_version(request={"name": name})
 
-            # For TensorFlow to use the same credentials
-            os.environ["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] = creds_path
-
-            # Use the same credentials for our client
-            return storage.Client.from_service_account_json(creds_path)
-
-        # If using Workload Identity Federation (access_token)
-        access_token = os.getenv("GCP_ACCESS_TOKEN")
-        if access_token:
-            print("Using access token from GitHub Actions")
-            # This environment variable is critical for TensorFlow GFile operations
-            os.environ["GOOGLE_CLOUD_ACCESS_TOKEN"] = access_token
-
-        # Get the storage client
-        client = storage.Client()
-
-        return client
+        # Return the decoded payload
+        return response.payload.data.decode("UTF-8")
     except Exception as e:
-        print(f"Error creating storage client for GitHub Actions: {e}")
+        print(f"Error accessing secret: {e}")
         raise
 
 
-def setup_tensorflow_auth():
-    """
-    Sets up authentication for TensorFlow's GFile operations.
-    This ensures TensorFlow can access GCS using the same credentials.
-    """
-    try:
-        # Check if GOOGLE_APPLICATION_CREDENTIALS is set
-        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if creds_path and os.path.exists(creds_path):
-            print(f"Using credentials from: {creds_path}")
-            # TensorFlow should pick these up automatically
-            return
+def get_local_credentials():
+    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-        # If we're in GitHub Actions, we need to use the token directly
-        if os.getenv("GITHUB_ACTIONS") == "true":
-            print("Setting up TensorFlow auth for GitHub Actions")
-            # Try to get the access token set by the github-actions/auth step
-            access_token = os.getenv("GCP_ACCESS_TOKEN")
-            if access_token:
-                # Set environment variable that TensorFlow's GFile operations can use
-                os.environ["GOOGLE_CLOUD_ACCESS_TOKEN"] = access_token
-                print("Set GOOGLE_CLOUD_ACCESS_TOKEN for TensorFlow GFile operations")
-    except Exception as e:
-        print(f"Warning: Failed to set up TensorFlow authentication: {e}")
+    # _URL = 'https://people.eecs.berkeley.edu/~tinghuiz/projects/pix2pix/datasets/facades.tar.gz'
+    # path_to_zip = tf.keras.utils.get_file('facades.tar.gz', origin=_URL, extract=True)
+    # PATH = os.path.join(os.path.dirname(path_to_zip), 'facades/')
 
-
-def auth_client_locally():
-    """Get storage client when running in local environment."""
-    # Check if we're in GitHub Actions environment
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        return auth_client_github_actions()
-
-    # Configure GCS access for local development
+    # Configure GCS access (choose one method below)
     # Option 1: If running locally, set credentials
-    secret_path = os.getenv("GCP_SECRET_PATH")
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
 
     # Add this before any GCS operations
-    load_dotenv()
+    client = storage.Client.from_service_account_json(SECRETS_PATH)
 
-    if not secret_path:
-        print(
-            "Warning: GCP_SECRET_PATH environment variable not set. Authentication may fail."
-        )
-        # Try using application default credentials as fallback
-        client = storage.Client()
-        setup_tensorflow_auth()
-        return client
-
-    # Set up TensorFlow's authentication
-    setup_tensorflow_auth()
-
-    return storage.Client.from_service_account_json(secret_path)
+    # Verify bucket access
+    bucket = client.get_bucket("metro-vancouver-regional-district")
+    print(f"Bucket exists: {bucket.exists()}")
