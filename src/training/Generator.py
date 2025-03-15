@@ -70,8 +70,10 @@ def Generator():
 def calculate_generator_loss(disc_generated_output, gen_output, target, loss_object):
     gan_loss = loss_object(tf.ones_like(disc_generated_output), disc_generated_output)
 
-    # mean absolute error
-    l1_loss = tf.reduce_mean(tf.abs(target - gen_output))
+    # Cast both tensors to float32 before subtraction
+    target_float32 = tf.cast(target, tf.float32)
+    gen_output_float32 = tf.cast(gen_output, tf.float32)
+    l1_loss = tf.reduce_mean(tf.abs(target_float32 - gen_output_float32))
 
     total_gen_loss = gan_loss + (LAMBDA * l1_loss)
 
