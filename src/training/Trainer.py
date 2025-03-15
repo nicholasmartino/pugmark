@@ -15,14 +15,8 @@ from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
 
-# Configure GCS access (choose one method below)
-# Option 1: If running locally, set credentials
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SECRETS_PATH
-
-# Add this before any GCS operations
-client = storage.Client.from_service_account_json(SECRETS_PATH)
-
 # Verify bucket access
+client = storage.Client()
 bucket = client.get_bucket("metro-vancouver-regional-district")
 print(f"Bucket exists: {bucket.exists()}")
 
