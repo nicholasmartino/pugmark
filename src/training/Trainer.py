@@ -20,12 +20,38 @@ client = storage.Client()
 bucket = client.get_bucket("metro-vancouver-regional-district")
 print(f"Bucket exists: {bucket.exists()}")
 
-# Update paths to use GCS when running in cloud
-log_dir = tf.io.gfile.join(PATH, "footprints/logs")
-checkpoint_dir = tf.io.gfile.join(PATH, "footprints/checkpoint")
+# Define GCS paths
+log_dir = f"{PATH}/footprints/logs"
+checkpoint_dir = f"{PATH}/footprints/checkpoint"
 
-# Ensure log directory exists
-tf.io.gfile.makedirs(log_dir)
+print(f"Using GCS paths:")
+print(f"- Log directory: {log_dir}")
+print(f"- Checkpoint directory: {checkpoint_dir}")
+
+# Use explicit GCS file system for directory operations
+fs = gcsfs.GCSFileSystem()
+
+# Explicitly create the checkpoint directory in GCS
+try:
+    if not fs.exists(checkpoint_dir):
+        fs.mkdir(checkpoint_dir)
+        print(f"Created checkpoint directory: {checkpoint_dir}")
+    else:
+        print(f"Checkpoint directory already exists: {checkpoint_dir}")
+
+    # List contents to verify
+    checkpoint_contents = fs.ls(checkpoint_dir)
+    print(f"Checkpoint directory contents: {checkpoint_contents}")
+except Exception as e:
+    print(f"Warning: Error accessing checkpoint directory: {e}")
+    # Continue anyway as TensorFlow might handle this
+
+# Ensure log directory exists using TensorFlow's file operations
+try:
+    tf.io.gfile.makedirs(log_dir)
+    print(f"Verified log directory: {log_dir}")
+except Exception as e:
+    print(f"Warning: Error with log directory: {e}")
 
 # Initialize summary writer with GCS-compatible path
 global summary_writer
@@ -202,29 +228,61 @@ def fit(
 ):
     # Set up logging to file
     log_dir = Path(checkpoint_directory).parent / "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = log_dir / "training_log.txt"
 
-    # Configure logging to write to both file and console
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(message)s",
-        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
-    )
+    # For GCS, use different approach to construct log file path
+    if checkpoint_directory.startswith("gs://"):
+        log_file_path = (
+            f"{checkpoint_directory.rsplit('/', 1)[0]}/logs/training_log.txt"
+        )
+        print(f"Using GCS log file path: {log_file_path}")
+
+        # Configure logging - for GCS, we'll primarily use print since file handlers may not work with GCS
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(message)s",
+            handlers=[logging.StreamHandler()],
+        )
+    else:
+        # Local file system approach
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = log_dir / "training_log.txt"
+        log_file_path = str(log_file)
+
+        # Configure logging to write to both file and console
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(message)s",
+            handlers=[logging.FileHandler(log_file_path), logging.StreamHandler()],
+        )
 
     # Log whether we're resuming training
     if initial_epoch > 0:
         logging.info(f"Resuming training from epoch {initial_epoch}")
+        print(f"Resuming training from epoch {initial_epoch}")
     else:
         logging.info(f"Starting training for {epochs} epochs")
+        print(f"Starting training for {epochs} epochs")
 
     logging.info(f"Checkpoints will be saved to: {checkpoint_directory}")
-    logging.info(f"Log file location: {log_file}")
+    print(f"Checkpoints will be saved to: {checkpoint_directory}")
+    logging.info(f"Log file location: {log_file_path}")
+    print(f"Log file location: {log_file_path}")
 
-    checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
+    # For GCS, explicitly define checkpoint prefix to ensure it's GCS-compatible
+    if checkpoint_directory.startswith("gs://"):
+        checkpoint_prefix = f"{checkpoint_directory}/ckpt"
+    else:
+        checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
 
-    # Ensure checkpoint directory exists
-    os.makedirs(checkpoint_directory, exist_ok=True)
+    print(f"Checkpoint prefix: {checkpoint_prefix}")
+
+    # Ensure checkpoint directory exists - redundant, but just to be safe
+    if checkpoint_directory.startswith("gs://"):
+        # GCS directory - already created earlier
+        pass
+    else:
+        # Local directory
+        os.makedirs(checkpoint_directory, exist_ok=True)
 
     start = time.time()
 
@@ -255,18 +313,52 @@ def fit(
 
         # saving (checkpoint) the model every 20 epochs
         if (epoch + 1) % 20 == 0:
-            checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            logging.info(f"Checkpoint saved at epoch {epoch+1}")
-            print(f"Checkpoint saved to: {checkpoint_path}")
+            print(
+                f"Attempting to save checkpoint at epoch {epoch+1} to: {checkpoint_prefix}"
+            )
+            try:
+                checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
+                logging.info(f"Checkpoint saved at epoch {epoch+1}")
+                print(f"Checkpoint saved to: {checkpoint_path}")
+
+                # For GCS, verify the files were created
+                if checkpoint_directory.startswith("gs://"):
+                    fs = gcsfs.GCSFileSystem()
+                    try:
+                        checkpoint_files = fs.ls(checkpoint_directory)
+                        print(
+                            f"Files in checkpoint directory after save: {checkpoint_files}"
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not list checkpoint directory: {e}")
+            except Exception as e:
+                print(f"Error saving checkpoint: {e}")
+                logging.error(f"Error saving checkpoint: {e}")
 
         epoch_time = time.time() - start
         logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
         logging.info(f"Steps completed: {steps_total}")
 
     # Final checkpoint
-    checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-    logging.info(f"Training complete - final checkpoint saved")
-    print(f"Final checkpoint saved to: {checkpoint_path}")
+    print(f"Saving final checkpoint to: {checkpoint_prefix}")
+    try:
+        checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
+        logging.info(f"Training complete - final checkpoint saved")
+        print(f"Final checkpoint saved to: {checkpoint_path}")
+
+        # Verify checkpoint files
+        if checkpoint_directory.startswith("gs://"):
+            fs = gcsfs.GCSFileSystem()
+            try:
+                checkpoint_files = fs.ls(checkpoint_directory)
+                print(
+                    f"Files in checkpoint directory after final save: {checkpoint_files}"
+                )
+            except Exception as e:
+                print(f"Warning: Could not list checkpoint directory: {e}")
+    except Exception as e:
+        print(f"Error saving final checkpoint: {e}")
+        logging.error(f"Error saving final checkpoint: {e}")
 
 
 def train(resume_training=False):
@@ -286,21 +378,58 @@ def train(resume_training=False):
     # Check for existing checkpoint if resuming
     if resume_training:
         # Try to restore the checkpoint
+        print(f"Looking for checkpoints in: {checkpoint_dir}")
+
+        # List all files in the checkpoint directory using gcsfs for GCS paths
+        if checkpoint_dir.startswith("gs://"):
+            try:
+                fs = gcsfs.GCSFileSystem()
+                checkpoint_files = fs.ls(checkpoint_dir)
+                print(f"Files in checkpoint directory (GCS): {checkpoint_files}")
+            except Exception as e:
+                print(f"Error listing GCS checkpoint directory: {e}")
+                checkpoint_files = []
+        else:
+            # For local paths
+            try:
+                checkpoint_files = os.listdir(checkpoint_dir)
+                print(f"Files in checkpoint directory: {checkpoint_files}")
+            except Exception as e:
+                print(f"Error listing checkpoint directory: {e}")
+                checkpoint_files = []
+
+        # Get the latest checkpoint
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+        print(f"Latest checkpoint found: {latest_checkpoint}")
+
         if latest_checkpoint:
-            logging.info(f"Restoring from checkpoint: {latest_checkpoint}")
-            checkpoint.restore(latest_checkpoint)
+            try:
+                logging.info(f"Restoring from checkpoint: {latest_checkpoint}")
+                status = checkpoint.restore(latest_checkpoint)
+                # For eager execution
+                if hasattr(status, "assert_existing_objects_matched"):
+                    status.assert_existing_objects_matched()
+                    print("Checkpoint objects matched existing objects")
 
-            # Get the epoch from the restored checkpoint
-            initial_epoch = (
-                int(epoch_counter.numpy()) + 1
-            )  # +1 because we want to start with the next epoch
+                # Get the epoch from the restored checkpoint
+                initial_epoch = (
+                    int(epoch_counter.numpy()) + 1
+                )  # +1 because we want to start with the next epoch
 
-            logging.info(
-                f"Checkpoint restored successfully, resuming from epoch {initial_epoch}"
-            )
+                logging.info(
+                    f"Checkpoint restored successfully, resuming from epoch {initial_epoch}"
+                )
+                print(
+                    f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}"
+                )
+            except Exception as e:
+                logging.error(f"Error restoring checkpoint: {e}")
+                print(f"Failed to restore checkpoint: {e}")
+                resume_training = False
+                initial_epoch = 0
         else:
             logging.warning("No checkpoint found, starting training from beginning")
+            print("No checkpoint found. Starting fresh training.")
             resume_training = False
             initial_epoch = 0
 
