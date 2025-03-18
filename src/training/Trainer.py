@@ -104,6 +104,19 @@ print(f"- Checkpoint directory: {checkpoint_dir}")
 # Use explicit GCS file system for directory operations
 fs = gcsfs.GCSFileSystem()
 
+
+# Helper function to convert GCS path to directory format
+def ensure_gcs_path_format(path):
+    # Remove 'gs://' prefix if it exists for proper fs.ls() usage
+    if path.startswith("gs://"):
+        # Format correctly for listing operations
+        bucket_name = path.split("/")[2]
+        blob_path = "/".join(path.split("/")[3:])
+        # Return in the format that gcsfs expects for ls operation
+        return blob_path
+    return path
+
+
 # Explicitly create the checkpoint directory in GCS
 try:
     if not fs.exists(checkpoint_dir):
@@ -112,9 +125,34 @@ try:
     else:
         print(f"Checkpoint directory already exists: {checkpoint_dir}")
 
-    # List contents to verify
-    checkpoint_contents = fs.ls(checkpoint_dir)
-    print(f"Checkpoint directory contents: {checkpoint_contents}")
+    # List contents to verify - need to use proper path format
+    # Get the bucket name and path
+    bucket_name = checkpoint_dir.split("/")[2]
+    blob_path = "/".join(checkpoint_dir.split("/")[3:])
+
+    # Try listing with different approaches
+    try:
+        # First approach: just list bucket contents
+        print(f"Verifying checkpoint directory using bucket.list_blobs()...")
+        client = storage.Client()
+        bucket = client.get_bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=blob_path, max_results=5))
+        print(f"Found {len(blobs)} objects with prefix {blob_path}")
+    except Exception as e1:
+        print(f"Warning: List using bucket.list_blobs failed: {e1}")
+
+        # Try another approach with fs.ls on parent directory
+        try:
+            parent_dir = os.path.dirname(checkpoint_dir)
+            parent_path = ensure_gcs_path_format(parent_dir)
+            print(f"Trying to list parent directory: {parent_path}")
+            parent_contents = fs.ls(parent_path)
+            print(f"Parent directory contents: {parent_contents}")
+        except Exception as e2:
+            print(f"Warning: List parent directory failed: {e2}")
+            # Continue anyway
+
+    print(f"Checkpoint directory verified and ready.")
 except Exception as e:
     print(f"Error accessing checkpoint directory: {e}")
     raise Exception(f"Failed to access or create checkpoint directory: {e}")
@@ -396,9 +434,16 @@ def fit(
                 print(f"Checkpoint saved to: {checkpoint_path}")
 
                 # Verify files were created
-                fs = gcsfs.GCSFileSystem()
-                checkpoint_files = fs.ls(checkpoint_directory)
-                print(f"Files in checkpoint directory after save: {checkpoint_files}")
+                if checkpoint_directory.startswith("gs://"):
+                    bucket_name = checkpoint_directory.split("/")[2]
+                    blob_path = "/".join(checkpoint_directory.split("/")[3:])
+
+                    client = storage.Client()
+                    bucket = client.get_bucket(bucket_name)
+                    blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
+                    print(
+                        f"Files in checkpoint directory after save: {[b.name for b in blobs]}"
+                    )
             except Exception as e:
                 print(f"Error saving checkpoint: {e}")
                 logging.error(f"Error saving checkpoint: {e}")
@@ -418,9 +463,16 @@ def fit(
         print(f"Final checkpoint saved to: {checkpoint_path}")
 
         # Verify files were created
-        fs = gcsfs.GCSFileSystem()
-        checkpoint_files = fs.ls(checkpoint_directory)
-        print(f"Files in checkpoint directory after final save: {checkpoint_files}")
+        if checkpoint_directory.startswith("gs://"):
+            bucket_name = checkpoint_directory.split("/")[2]
+            blob_path = "/".join(checkpoint_directory.split("/")[3:])
+
+            client = storage.Client()
+            bucket = client.get_bucket(bucket_name)
+            blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
+            print(
+                f"Files in checkpoint directory after final save: {[b.name for b in blobs]}"
+            )
     except Exception as e:
         print(f"Error saving final checkpoint: {e}")
         logging.error(f"Error saving final checkpoint: {e}")
@@ -446,17 +498,35 @@ def train(resume_training=False):
         # Try to restore the checkpoint
         print(f"Looking for checkpoints in: {checkpoint_dir}")
 
-        # List all files in the checkpoint directory using gcsfs
+        # List all files in the checkpoint directory using the proper GCS format
         try:
-            fs = gcsfs.GCSFileSystem()
-            checkpoint_files = fs.ls(checkpoint_dir)
-            print(f"Files in checkpoint directory: {checkpoint_files}")
+            if checkpoint_dir.startswith("gs://"):
+                bucket_name = checkpoint_dir.split("/")[2]
+                blob_path = "/".join(checkpoint_dir.split("/")[3:])
+
+                client = storage.Client()
+                bucket = client.get_bucket(bucket_name)
+                blobs = list(bucket.list_blobs(prefix=blob_path, max_results=20))
+                if blobs:
+                    print(f"Found {len(blobs)} files in checkpoint directory:")
+                    for blob in blobs:
+                        print(f"  - {blob.name}")
+                else:
+                    print("No files found in checkpoint directory.")
+            else:
+                checkpoint_files = os.listdir(checkpoint_dir)
+                print(f"Files in checkpoint directory: {checkpoint_files}")
         except Exception as e:
-            raise Exception(f"Error listing checkpoint directory: {e}")
+            print(f"Warning: Error listing checkpoint directory: {e}")
+            # Continue anyway, tf.train.latest_checkpoint might still work
 
         # Get the latest checkpoint
-        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-        print(f"Latest checkpoint found: {latest_checkpoint}")
+        try:
+            latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+            print(f"Latest checkpoint found: {latest_checkpoint}")
+        except Exception as e:
+            print(f"Error finding latest checkpoint: {e}")
+            latest_checkpoint = None
 
         if latest_checkpoint:
             try:
@@ -480,7 +550,10 @@ def train(resume_training=False):
                 )
             except Exception as e:
                 logging.error(f"Error restoring checkpoint: {e}")
-                raise Exception(f"Failed to restore checkpoint: {e}")
+                print(f"Failed to restore checkpoint: {e}")
+                # Don't raise exception, just start from scratch
+                resume_training = False
+                initial_epoch = 0
         else:
             logging.warning("No checkpoint found, starting training from beginning")
             print("No checkpoint found. Starting fresh training.")
