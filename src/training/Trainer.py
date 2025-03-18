@@ -15,6 +15,85 @@ from Sampler import downsample, upsample
 
 start_time = datetime.datetime.now()
 
+
+# Test Google Cloud Storage access in detail
+def test_gcs_access():
+    print("\n===== TESTING GCS ACCESS =====")
+
+    # 1. Check authentication method
+    print("Checking authentication method...")
+    from google.colab import auth
+
+    try:
+        # Attempt to authenticate in Colab
+        auth.authenticate_user()
+        print("✓ Successfully authenticated with Colab")
+    except:
+        print("Not running in Colab or authentication already done")
+
+    # 2. Check environment variables
+    print("\nChecking environment variables...")
+    if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        print(
+            f"✓ GOOGLE_APPLICATION_CREDENTIALS is set to: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}"
+        )
+    else:
+        print("✗ GOOGLE_APPLICATION_CREDENTIALS is not set")
+
+    # 3. Test bucket access
+    print("\nTesting bucket access...")
+    try:
+        client = storage.Client()
+        bucket = client.get_bucket("metro-vancouver-regional-district")
+        print(f"✓ Bucket exists: {bucket.exists()}")
+
+        # 4. Try writing a test file
+        print("\nTesting write permissions...")
+        test_blob = bucket.blob(
+            f"{PATH.replace('gs://metro-vancouver-regional-district/', '')}/test_write_permissions.txt"
+        )
+        test_blob.upload_from_string("Testing write permissions")
+        print(f"✓ Successfully wrote to: {test_blob.name}")
+
+        # 5. Try reading the test file
+        print("\nTesting read permissions...")
+        content = test_blob.download_as_text()
+        print(f"✓ Successfully read content: {content}")
+
+        # 6. Try listing objects
+        print("\nTesting list permissions...")
+        blobs = list(
+            bucket.list_blobs(
+                prefix=f"{PATH.replace('gs://metro-vancouver-regional-district/', '')}/",
+                max_results=5,
+            )
+        )
+        print(f"✓ Listed {len(blobs)} objects in path")
+        for blob in blobs[:5]:  # Show first 5
+            print(f"  - {blob.name}")
+
+        # Clean up test file
+        test_blob.delete()
+        print("✓ Cleaned up test file")
+
+        print("\n✓ ALL GCS PERMISSION TESTS PASSED")
+        return True
+
+    except Exception as e:
+        print(f"✗ GCS access error: {e}")
+        print("\n✗ GCS PERMISSION TESTS FAILED")
+        return False
+
+
+# Run the test
+gcs_access_ok = test_gcs_access()
+if not gcs_access_ok:
+    # If GCS access fails, raise an exception to stop execution
+    raise Exception(
+        "ERROR: Cannot access Google Cloud Storage. Training cannot proceed."
+    )
+
+# Continue with GCS paths
 # Verify bucket access
 client = storage.Client()
 bucket = client.get_bucket("metro-vancouver-regional-district")
@@ -43,15 +122,16 @@ try:
     checkpoint_contents = fs.ls(checkpoint_dir)
     print(f"Checkpoint directory contents: {checkpoint_contents}")
 except Exception as e:
-    print(f"Warning: Error accessing checkpoint directory: {e}")
-    # Continue anyway as TensorFlow might handle this
+    print(f"Error accessing checkpoint directory: {e}")
+    raise Exception(f"Failed to access or create checkpoint directory: {e}")
 
 # Ensure log directory exists using TensorFlow's file operations
 try:
     tf.io.gfile.makedirs(log_dir)
     print(f"Verified log directory: {log_dir}")
 except Exception as e:
-    print(f"Warning: Error with log directory: {e}")
+    print(f"Error creating log directory: {e}")
+    raise Exception(f"Failed to create log directory: {e}")
 
 # Initialize summary writer with GCS-compatible path
 global summary_writer
@@ -321,19 +401,16 @@ def fit(
                 logging.info(f"Checkpoint saved at epoch {epoch+1}")
                 print(f"Checkpoint saved to: {checkpoint_path}")
 
-                # For GCS, verify the files were created
-                if checkpoint_directory.startswith("gs://"):
-                    fs = gcsfs.GCSFileSystem()
-                    try:
-                        checkpoint_files = fs.ls(checkpoint_directory)
-                        print(
-                            f"Files in checkpoint directory after save: {checkpoint_files}"
-                        )
-                    except Exception as e:
-                        print(f"Warning: Could not list checkpoint directory: {e}")
+                # Verify files were created
+                fs = gcsfs.GCSFileSystem()
+                checkpoint_files = fs.ls(checkpoint_directory)
+                print(f"Files in checkpoint directory after save: {checkpoint_files}")
             except Exception as e:
                 print(f"Error saving checkpoint: {e}")
                 logging.error(f"Error saving checkpoint: {e}")
+                raise Exception(
+                    f"Critical error: Failed to save checkpoint to GCS: {e}"
+                )
 
         epoch_time = time.time() - start
         logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
@@ -346,19 +423,14 @@ def fit(
         logging.info(f"Training complete - final checkpoint saved")
         print(f"Final checkpoint saved to: {checkpoint_path}")
 
-        # Verify checkpoint files
-        if checkpoint_directory.startswith("gs://"):
-            fs = gcsfs.GCSFileSystem()
-            try:
-                checkpoint_files = fs.ls(checkpoint_directory)
-                print(
-                    f"Files in checkpoint directory after final save: {checkpoint_files}"
-                )
-            except Exception as e:
-                print(f"Warning: Could not list checkpoint directory: {e}")
+        # Verify files were created
+        fs = gcsfs.GCSFileSystem()
+        checkpoint_files = fs.ls(checkpoint_directory)
+        print(f"Files in checkpoint directory after final save: {checkpoint_files}")
     except Exception as e:
         print(f"Error saving final checkpoint: {e}")
         logging.error(f"Error saving final checkpoint: {e}")
+        raise Exception(f"Critical error: Failed to save final checkpoint to GCS: {e}")
 
 
 def train(resume_training=False):
@@ -380,23 +452,13 @@ def train(resume_training=False):
         # Try to restore the checkpoint
         print(f"Looking for checkpoints in: {checkpoint_dir}")
 
-        # List all files in the checkpoint directory using gcsfs for GCS paths
-        if checkpoint_dir.startswith("gs://"):
-            try:
-                fs = gcsfs.GCSFileSystem()
-                checkpoint_files = fs.ls(checkpoint_dir)
-                print(f"Files in checkpoint directory (GCS): {checkpoint_files}")
-            except Exception as e:
-                print(f"Error listing GCS checkpoint directory: {e}")
-                checkpoint_files = []
-        else:
-            # For local paths
-            try:
-                checkpoint_files = os.listdir(checkpoint_dir)
-                print(f"Files in checkpoint directory: {checkpoint_files}")
-            except Exception as e:
-                print(f"Error listing checkpoint directory: {e}")
-                checkpoint_files = []
+        # List all files in the checkpoint directory using gcsfs
+        try:
+            fs = gcsfs.GCSFileSystem()
+            checkpoint_files = fs.ls(checkpoint_dir)
+            print(f"Files in checkpoint directory: {checkpoint_files}")
+        except Exception as e:
+            raise Exception(f"Error listing checkpoint directory: {e}")
 
         # Get the latest checkpoint
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
@@ -424,14 +486,17 @@ def train(resume_training=False):
                 )
             except Exception as e:
                 logging.error(f"Error restoring checkpoint: {e}")
-                print(f"Failed to restore checkpoint: {e}")
-                resume_training = False
-                initial_epoch = 0
+                raise Exception(f"Failed to restore checkpoint: {e}")
         else:
             logging.warning("No checkpoint found, starting training from beginning")
             print("No checkpoint found. Starting fresh training.")
             resume_training = False
             initial_epoch = 0
+    else:
+        logging.warning("No checkpoint found, starting training from beginning")
+        print("No checkpoint found. Starting fresh training.")
+        resume_training = False
+        initial_epoch = 0
 
     # Rest of original training code
     fit(
