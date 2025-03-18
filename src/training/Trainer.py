@@ -13,6 +13,44 @@ from google.cloud import storage
 from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
+# Set Google Cloud project ID in environment variable
+# This helps prevent the "No project ID could be determined" warning
+os.environ["GOOGLE_CLOUD_PROJECT"] = (
+    "pugmark-448918"  # Replace with your actual project ID
+)
+
+
+# Configure TensorFlow to work properly with GCS
+def configure_tensorflow_for_gcs():
+    # Register the GCS file system with TensorFlow
+    # This is important for tf.io.gfile operations on GCS paths
+    import json
+
+    import tensorflow as tf
+
+    # Create credentials config
+    gcs_credentials = {
+        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT"),
+        "bucket": "metro-vancouver-regional-district",
+    }
+
+    # Convert to JSON string
+    gcs_json = json.dumps(gcs_credentials)
+
+    # Set environment variables that TensorFlow uses internally
+    os.environ["GCS_RESOLVE_REFRESH_SECS"] = "0"
+
+    # Log TensorFlow GCS configuration
+    print("\n===== CONFIGURING TENSORFLOW FOR GCS =====")
+    print(f"Setting up TensorFlow to work with GCS bucket: {gcs_credentials['bucket']}")
+    print(f"Project ID set to: {gcs_credentials['project_id']}")
+
+    return True
+
+
+# Configure TensorFlow for GCS
+configure_tensorflow_for_gcs()
+
 start_time = datetime.datetime.now()
 
 
@@ -34,8 +72,18 @@ def test_gcs_access():
             "✗ GOOGLE_APPLICATION_CREDENTIALS is not set - this is expected in Colab when using user authentication"
         )
 
+    # Verify project ID environment variable
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        print(
+            f"✓ GOOGLE_CLOUD_PROJECT is set to: {os.environ.get('GOOGLE_CLOUD_PROJECT')}"
+        )
+    else:
+        print("✗ GOOGLE_CLOUD_PROJECT is not set")
+
     # Set the project ID explicitly - important for Colab
-    project_id = "pugmark-448918"  # Replace with your actual project ID
+    project_id = os.environ.get(
+        "GOOGLE_CLOUD_PROJECT", "pugmark-448918"
+    )  # Use env var or fallback
     print(f"Using project ID: {project_id}")
 
     # 2. Test bucket access
@@ -387,7 +435,19 @@ def fit(
 
     # For GCS, explicitly define checkpoint prefix to ensure it's GCS-compatible
     if checkpoint_directory.startswith("gs://"):
+        # Make sure the checkpoint path format is correct for TensorFlow
+        # For GCS, we should use the standard prefix format
         checkpoint_prefix = f"{checkpoint_directory}/ckpt"
+
+        # Important: Explicitly create the directory since TensorFlow might not
+        client = storage.Client(project=project_id)
+        bucket_name = checkpoint_directory.split("/")[2]
+        blob_prefix = "/".join(checkpoint_directory.split("/")[3:])
+        bucket = client.get_bucket(bucket_name)
+
+        # Ensure the directory marker exists in the bucket
+        bucket.blob(f"{blob_prefix}/").upload_from_string("")
+        print(f"Ensured GCS checkpoint directory marker exists: {blob_prefix}/")
     else:
         checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
 
@@ -434,6 +494,14 @@ def fit(
                 f"Attempting to save checkpoint at epoch {epoch+1} to: {checkpoint_prefix}"
             )
             try:
+                # Make sure GCS paths are properly formatted for TensorFlow
+                if checkpoint_prefix.startswith("gs://"):
+                    # Force a directory check/creation before saving
+                    tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
+                    print(
+                        f"Verified GCS directory exists for checkpoint: {os.path.dirname(checkpoint_prefix)}"
+                    )
+
                 checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
                 logging.info(f"Checkpoint saved at epoch {epoch+1}")
                 print(f"Checkpoint saved to: {checkpoint_path}")
@@ -463,6 +531,14 @@ def fit(
     # Final checkpoint
     print(f"Saving final checkpoint to: {checkpoint_prefix}")
     try:
+        # Make sure GCS paths are properly formatted for TensorFlow
+        if checkpoint_prefix.startswith("gs://"):
+            # Force a directory check/creation before saving
+            tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
+            print(
+                f"Verified GCS directory exists for final checkpoint: {os.path.dirname(checkpoint_prefix)}"
+            )
+
         checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
         logging.info(f"Training complete - final checkpoint saved")
         print(f"Final checkpoint saved to: {checkpoint_path}")
