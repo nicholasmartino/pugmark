@@ -46,11 +46,19 @@ else:
 
 if __name__ == "__main__":
     try:
-        from Trainer import train
+        from Trainer import checkpoint, checkpoint_dir, train
 
-        # Run the training function
-        logger.info("Starting training process")
-        train()
+        # Check for existing checkpoint
+        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+        if latest_checkpoint:
+            print(f"Found checkpoint: {latest_checkpoint}")
+            print("Restoring checkpoint and resuming training...")
+            # The actual restore happens in the train function
+            train(resume_training=True)
+        else:
+            print("No checkpoint found. Starting fresh training.")
+            train()
+
         logger.info("Training completed successfully")
     except Exception as e:
         logger.error(f"An error occurred during training: {e}", exc_info=True)

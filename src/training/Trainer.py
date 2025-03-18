@@ -194,6 +194,7 @@ def fit(
     checkpoint,
     checkpoint_directory,
     epochs,
+    initial_epoch=0,
 ):
     # Set up logging to file
     log_dir = Path(checkpoint_directory).parent / "logs"
@@ -207,14 +208,20 @@ def fit(
         handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
     )
 
-    logging.info(f"Starting training for {epochs} epochs")
+    # Log whether we're resuming training
+    if initial_epoch > 0:
+        logging.info(f"Resuming training from epoch {initial_epoch}")
+    else:
+        logging.info(f"Starting training for {epochs} epochs")
+
     logging.info(f"Checkpoints will be saved to: {checkpoint_directory}")
     logging.info(f"Log file location: {log_file}")
 
     checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
     start = time.time()
 
-    for epoch in range(epochs):
+    # Modify the range to start from initial_epoch
+    for epoch in range(initial_epoch, epochs):
         start = time.time()
 
         logging.info(f"Epoch {epoch+1}/{epochs} - Starting")
@@ -249,7 +256,7 @@ def fit(
     logging.info(f"Training complete - final checkpoint saved")
 
 
-def train():
+def train(resume_training=False, initial_epoch=0):
     # Add verification checks
     logging.info(f"TensorFlow version: {tf.__version__}")
     gpu_devices = tf.config.list_physical_devices("GPU")
@@ -260,8 +267,31 @@ def train():
         test_tensor = tf.random.normal([2, 2])
         logging.info(f"Tensor device test: {test_tensor.device}")
 
+    # Check for existing checkpoint if resuming
+    if resume_training:
+        # Try to restore the checkpoint
+        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+        if latest_checkpoint:
+            logging.info(f"Restoring from checkpoint: {latest_checkpoint}")
+            checkpoint.restore(latest_checkpoint)
+            logging.info(
+                f"Checkpoint restored successfully, resuming from epoch {initial_epoch}"
+            )
+        else:
+            logging.warning("No checkpoint found, starting training from beginning")
+            resume_training = False
+            initial_epoch = 0
+
     # Rest of original training code
-    fit(train_dataset, test_dataset, generator, checkpoint, checkpoint_dir, EPOCHS)
+    fit(
+        train_dataset,
+        test_dataset,
+        generator,
+        checkpoint,
+        checkpoint_dir,
+        EPOCHS,
+        initial_epoch=initial_epoch,
+    )
 
     # restoring the latest checkpoint in checkpoint_dir
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
