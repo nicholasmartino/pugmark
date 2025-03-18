@@ -20,34 +20,28 @@ start_time = datetime.datetime.now()
 def test_gcs_access():
     print("\n===== TESTING GCS ACCESS =====")
 
-    # 1. Check authentication method
-    print("Checking authentication method...")
-    from google.colab import auth
+    # Skip Colab authentication since it's done manually
+    print("Assuming manual authentication in Colab...")
 
-    try:
-        # Attempt to authenticate in Colab
-        auth.authenticate_user()
-        print("✓ Successfully authenticated with Colab")
-    except:
-        print("Not running in Colab or authentication already done")
-
-    # 2. Check environment variables
+    # 1. Check environment variables
     print("\nChecking environment variables...")
     if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
         print(
             f"✓ GOOGLE_APPLICATION_CREDENTIALS is set to: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}"
         )
     else:
-        print("✗ GOOGLE_APPLICATION_CREDENTIALS is not set")
+        print(
+            "✗ GOOGLE_APPLICATION_CREDENTIALS is not set - this is expected in Colab when using user authentication"
+        )
 
-    # 3. Test bucket access
+    # 2. Test bucket access
     print("\nTesting bucket access...")
     try:
         client = storage.Client()
         bucket = client.get_bucket("metro-vancouver-regional-district")
         print(f"✓ Bucket exists: {bucket.exists()}")
 
-        # 4. Try writing a test file
+        # 3. Try writing a test file
         print("\nTesting write permissions...")
         test_blob = bucket.blob(
             f"{PATH.replace('gs://metro-vancouver-regional-district/', '')}/test_write_permissions.txt"
@@ -55,12 +49,12 @@ def test_gcs_access():
         test_blob.upload_from_string("Testing write permissions")
         print(f"✓ Successfully wrote to: {test_blob.name}")
 
-        # 5. Try reading the test file
+        # 4. Try reading the test file
         print("\nTesting read permissions...")
         content = test_blob.download_as_text()
         print(f"✓ Successfully read content: {content}")
 
-        # 6. Try listing objects
+        # 5. Try listing objects
         print("\nTesting list permissions...")
         blobs = list(
             bucket.list_blobs(
