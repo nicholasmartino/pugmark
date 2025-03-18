@@ -122,11 +122,15 @@ DEFINE THE OPTIMIZERS AND CHECKPOINT-SAVER
 generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
+# Track training epoch in a TensorFlow variable so it gets saved in the checkpoint
+epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
+
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
     discriminator_optimizer=discriminator_optimizer,
     generator=generator,
     discriminator=discriminator,
+    epoch_counter=epoch_counter,  # Add epoch counter to the checkpoint
 )
 
 """
@@ -218,10 +222,17 @@ def fit(
     logging.info(f"Log file location: {log_file}")
 
     checkpoint_prefix = os.path.join(checkpoint_directory, "ckpt")
+
+    # Ensure checkpoint directory exists
+    os.makedirs(checkpoint_directory, exist_ok=True)
+
     start = time.time()
 
     # Modify the range to start from initial_epoch
     for epoch in range(initial_epoch, epochs):
+        # Update epoch counter variable
+        epoch_counter.assign(epoch)
+
         start = time.time()
 
         logging.info(f"Epoch {epoch+1}/{epochs} - Starting")
@@ -244,19 +255,21 @@ def fit(
 
         # saving (checkpoint) the model every 20 epochs
         if (epoch + 1) % 20 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
+            checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
             logging.info(f"Checkpoint saved at epoch {epoch+1}")
+            print(f"Checkpoint saved to: {checkpoint_path}")
 
         epoch_time = time.time() - start
         logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
         logging.info(f"Steps completed: {steps_total}")
 
     # Final checkpoint
-    checkpoint.save(file_prefix=checkpoint_prefix)
+    checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
     logging.info(f"Training complete - final checkpoint saved")
+    print(f"Final checkpoint saved to: {checkpoint_path}")
 
 
-def train(resume_training=False, initial_epoch=0):
+def train(resume_training=False):
     # Add verification checks
     logging.info(f"TensorFlow version: {tf.__version__}")
     gpu_devices = tf.config.list_physical_devices("GPU")
@@ -267,6 +280,9 @@ def train(resume_training=False, initial_epoch=0):
         test_tensor = tf.random.normal([2, 2])
         logging.info(f"Tensor device test: {test_tensor.device}")
 
+    # Default initial epoch
+    initial_epoch = 0
+
     # Check for existing checkpoint if resuming
     if resume_training:
         # Try to restore the checkpoint
@@ -274,6 +290,12 @@ def train(resume_training=False, initial_epoch=0):
         if latest_checkpoint:
             logging.info(f"Restoring from checkpoint: {latest_checkpoint}")
             checkpoint.restore(latest_checkpoint)
+
+            # Get the epoch from the restored checkpoint
+            initial_epoch = (
+                int(epoch_counter.numpy()) + 1
+            )  # +1 because we want to start with the next epoch
+
             logging.info(
                 f"Checkpoint restored successfully, resuming from epoch {initial_epoch}"
             )
