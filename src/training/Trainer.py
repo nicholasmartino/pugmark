@@ -34,10 +34,14 @@ def test_gcs_access():
             "✗ GOOGLE_APPLICATION_CREDENTIALS is not set - this is expected in Colab when using user authentication"
         )
 
+    # Set the project ID explicitly - important for Colab
+    project_id = "pugmark-448918"  # Replace with your actual project ID
+    print(f"Using project ID: {project_id}")
+
     # 2. Test bucket access
     print("\nTesting bucket access...")
     try:
-        client = storage.Client()
+        client = storage.Client(project=project_id)
         bucket = client.get_bucket("metro-vancouver-regional-district")
         print(f"✓ Bucket exists: {bucket.exists()}")
 
@@ -71,16 +75,16 @@ def test_gcs_access():
         print("✓ Cleaned up test file")
 
         print("\n✓ ALL GCS PERMISSION TESTS PASSED")
-        return True
+        return True, project_id
 
     except Exception as e:
         print(f"✗ GCS access error: {e}")
         print("\n✗ GCS PERMISSION TESTS FAILED")
-        return False
+        return False, None
 
 
 # Run the test
-gcs_access_ok = test_gcs_access()
+gcs_access_ok, project_id = test_gcs_access()
 if not gcs_access_ok:
     # If GCS access fails, raise an exception to stop execution
     raise Exception(
@@ -88,8 +92,8 @@ if not gcs_access_ok:
     )
 
 # Continue with GCS paths
-# Verify bucket access
-client = storage.Client()
+# Verify bucket access using the project ID we obtained
+client = storage.Client(project=project_id)
 bucket = client.get_bucket("metro-vancouver-regional-district")
 print(f"Bucket exists: {bucket.exists()}")
 
@@ -102,7 +106,7 @@ print(f"- Log directory: {log_dir}")
 print(f"- Checkpoint directory: {checkpoint_dir}")
 
 # Use explicit GCS file system for directory operations
-fs = gcsfs.GCSFileSystem()
+fs = gcsfs.GCSFileSystem(project=project_id)
 
 
 # Helper function to convert GCS path to directory format
@@ -134,7 +138,7 @@ try:
     try:
         # First approach: just list bucket contents
         print(f"Verifying checkpoint directory using bucket.list_blobs()...")
-        client = storage.Client()
+        client = storage.Client(project=project_id)
         bucket = client.get_bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=blob_path, max_results=5))
         print(f"Found {len(blobs)} objects with prefix {blob_path}")
@@ -171,7 +175,8 @@ summary_writer = tf.summary.create_file_writer(
     tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 )
 
-fs = gcsfs.GCSFileSystem()
+# Use project ID for GCS file system
+fs = gcsfs.GCSFileSystem(project=project_id)
 train_files = fs.ls(os.path.join(PATH, "footprints/train"))
 test_files = fs.ls(os.path.join(PATH, "footprints/test"))
 
@@ -438,7 +443,7 @@ def fit(
                     bucket_name = checkpoint_directory.split("/")[2]
                     blob_path = "/".join(checkpoint_directory.split("/")[3:])
 
-                    client = storage.Client()
+                    client = storage.Client(project=project_id)
                     bucket = client.get_bucket(bucket_name)
                     blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
                     print(
@@ -467,12 +472,15 @@ def fit(
             bucket_name = checkpoint_directory.split("/")[2]
             blob_path = "/".join(checkpoint_directory.split("/")[3:])
 
-            client = storage.Client()
+            client = storage.Client(project=project_id)
             bucket = client.get_bucket(bucket_name)
             blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
             print(
                 f"Files in checkpoint directory after final save: {[b.name for b in blobs]}"
             )
+        else:
+            checkpoint_files = os.listdir(checkpoint_dir)
+            print(f"Files in checkpoint directory: {checkpoint_files}")
     except Exception as e:
         print(f"Error saving final checkpoint: {e}")
         logging.error(f"Error saving final checkpoint: {e}")
@@ -504,7 +512,7 @@ def train(resume_training=False):
                 bucket_name = checkpoint_dir.split("/")[2]
                 blob_path = "/".join(checkpoint_dir.split("/")[3:])
 
-                client = storage.Client()
+                client = storage.Client(project=project_id)
                 bucket = client.get_bucket(bucket_name)
                 blobs = list(bucket.list_blobs(prefix=blob_path, max_results=20))
                 if blobs:
@@ -518,7 +526,6 @@ def train(resume_training=False):
                 print(f"Files in checkpoint directory: {checkpoint_files}")
         except Exception as e:
             print(f"Warning: Error listing checkpoint directory: {e}")
-            # Continue anyway, tf.train.latest_checkpoint might still work
 
         # Get the latest checkpoint
         try:
