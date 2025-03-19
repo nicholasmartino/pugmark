@@ -13,12 +13,6 @@ from google.cloud import storage
 from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
-# Set Google Cloud project ID in environment variable
-# This helps prevent the "No project ID could be determined" warning
-os.environ["GOOGLE_CLOUD_PROJECT"] = (
-    "pugmark-448918"  # Replace with your actual project ID
-)
-
 
 # Configure TensorFlow to work properly with GCS
 def configure_tensorflow_for_gcs():
@@ -30,12 +24,8 @@ def configure_tensorflow_for_gcs():
 
     # Create credentials config
     gcs_credentials = {
-        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT"),
         "bucket": "metro-vancouver-regional-district",
     }
-
-    # Convert to JSON string
-    gcs_json = json.dumps(gcs_credentials)
 
     # Set environment variables that TensorFlow uses internally
     os.environ["GCS_RESOLVE_REFRESH_SECS"] = "0"
@@ -43,7 +33,6 @@ def configure_tensorflow_for_gcs():
     # Log TensorFlow GCS configuration
     print("\n===== CONFIGURING TENSORFLOW FOR GCS =====")
     print(f"Setting up TensorFlow to work with GCS bucket: {gcs_credentials['bucket']}")
-    print(f"Project ID set to: {gcs_credentials['project_id']}")
 
     return True
 
@@ -77,14 +66,12 @@ def test_gcs_access():
         print(
             f"✓ GOOGLE_CLOUD_PROJECT is set to: {os.environ.get('GOOGLE_CLOUD_PROJECT')}"
         )
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     else:
-        print("✗ GOOGLE_CLOUD_PROJECT is not set")
-
-    # Set the project ID explicitly - important for Colab
-    project_id = os.environ.get(
-        "GOOGLE_CLOUD_PROJECT", "pugmark-448918"
-    )  # Use env var or fallback
-    print(f"Using project ID: {project_id}")
+        print(
+            "✗ GOOGLE_CLOUD_PROJECT is not set, will attempt to detect from credentials"
+        )
+        project_id = None
 
     # 2. Test bucket access
     print("\nTesting bucket access...")
@@ -92,6 +79,11 @@ def test_gcs_access():
         client = storage.Client(project=project_id)
         bucket = client.get_bucket("metro-vancouver-regional-district")
         print(f"✓ Bucket exists: {bucket.exists()}")
+
+        # Get the project ID from the client if we didn't have it
+        if not project_id:
+            project_id = client.project
+            print(f"Detected project ID from client: {project_id}")
 
         # 3. Try writing a test file
         print("\nTesting write permissions...")
