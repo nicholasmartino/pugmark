@@ -1,5 +1,4 @@
 import datetime
-import logging
 import os
 import time
 
@@ -386,29 +385,20 @@ def fit(
     initial_epoch=0,
     initial_step=0,  # Add initial step parameter
 ):
-    # Set up logging to file
+    # Set up log file path (for reference only now)
     log_dir = f"{checkpoint_directory.rsplit('/', 1)[0]}/logs"
     log_file_path = f"{log_dir}/training_log.txt"
     print(f"Using GCS log file path: {log_file_path}")
 
-    # Configure logging - for GCS, we'll primarily use print
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
+    # Remove logging configuration - we'll only use print statements
 
     # Log whether we're resuming training
     if initial_epoch > 0:
-        logging.info(f"Resuming training from epoch {initial_epoch}")
         print(f"Resuming training from epoch {initial_epoch}")
     else:
-        logging.info(f"Starting training for {epochs} epochs")
         print(f"Starting training for {epochs} epochs")
 
-    logging.info(f"Checkpoints will be saved to: {checkpoint_directory}")
     print(f"Checkpoints will be saved to: {checkpoint_directory}")
-    logging.info(f"Log file location: {log_file_path}")
     print(f"Log file location: {log_file_path}")
 
     # Define checkpoint prefix for GCS
@@ -432,13 +422,13 @@ def fit(
 
         start = time.time()
 
-        logging.info(f"Epoch {epoch}/{epochs} - Starting")
+        print(f"Epoch {epoch}/{epochs} - Starting")
 
         # Test on example batch at start of epoch
         for example_input, example_target in test_dataset.take(1):
             generate_images(generator, example_input, example_target)
 
-        logging.info(f"Epoch: {epoch}")
+        print(f"Epoch: {epoch}")
 
         # Train
         steps_total = 0
@@ -446,7 +436,6 @@ def fit(
         # When resuming from a checkpoint in the middle of an epoch, skip to the appropriate step
         skip_steps = initial_step if epoch == initial_epoch else 0
         if skip_steps > 0:
-            logging.info(f"Resuming from step {skip_steps} in epoch {epoch}")
             print(f"Resuming from step {skip_steps} in epoch {epoch}")
 
         # Use dataset.skip() to move to the right position if resuming
@@ -465,7 +454,7 @@ def fit(
             print(".", end="")
             if actual_step % 100 == 0:
                 print()
-                logging.info(f"  - Completed {actual_step} steps")
+                print(f"  - Completed {actual_step} steps")
 
                 # Save checkpoint every 100 steps for more frequent checkpoints
                 print(f"Saving checkpoint at step {steps_total} (epoch {epoch})")
@@ -479,13 +468,10 @@ def fit(
                     checkpoint_path = checkpoint.save(
                         file_prefix=step_checkpoint_prefix
                     )
-                    logging.info(
-                        f"Step checkpoint saved at epoch {epoch}, step {steps_total}"
-                    )
+                    print(f"Step checkpoint saved at epoch {epoch}, step {steps_total}")
                     print(f"Step checkpoint saved to: {checkpoint_path}")
                 except Exception as e:
                     print(f"Warning: Error saving step checkpoint: {e}")
-                    logging.warning(f"Error saving step checkpoint: {e}")
 
             train_step(input_image, target, epoch)
 
@@ -496,15 +482,14 @@ def fit(
         print(f"Saving checkpoint at end of epoch {epoch} to: {checkpoint_prefix}")
         try:
             checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            logging.info(f"Epoch checkpoint saved at epoch {epoch}")
+            print(f"Epoch checkpoint saved at epoch {epoch}")
             print(f"Epoch checkpoint saved to: {checkpoint_path}")
         except Exception as e:
             print(f"Warning: Error saving epoch checkpoint: {e}")
-            logging.warning(f"Error saving epoch checkpoint: {e}")
 
         epoch_time = time.time() - start
-        logging.info(f"Time taken for epoch {epoch} is {epoch_time:.2f} sec")
-        logging.info(f"Steps completed: {steps_total}")
+        print(f"Time taken for epoch {epoch} is {epoch_time:.2f} sec")
+        print(f"Steps completed: {steps_total}")
 
     # Final checkpoint
     print(f"Saving final checkpoint to: {checkpoint_prefix}")
@@ -516,7 +501,7 @@ def fit(
         )
 
         checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-        logging.info(f"Training complete - final checkpoint saved")
+        print(f"Training complete - final checkpoint saved")
         print(f"Final checkpoint saved to: {checkpoint_path}")
 
         # Verify files were created
@@ -531,20 +516,19 @@ def fit(
         )
     except Exception as e:
         print(f"Error saving final checkpoint: {e}")
-        logging.error(f"Error saving final checkpoint: {e}")
         raise Exception(f"Critical error: Failed to save final checkpoint to GCS: {e}")
 
 
 def train(resume_training=False):
     # Add verification checks
-    logging.info(f"TensorFlow version: {tf.__version__}")
+    print(f"TensorFlow version: {tf.__version__}")
     gpu_devices = tf.config.list_physical_devices("GPU")
-    logging.info(f"GPU devices: {gpu_devices}")
+    print(f"GPU devices: {gpu_devices}")
 
     # Force GPU placement test
     with tf.device("/GPU:0"):
         test_tensor = tf.random.normal([2, 2])
-        logging.info(f"Tensor device test: {test_tensor.device}")
+        print(f"Tensor device test: {test_tensor.device}")
 
     # Default initial epoch and step
     initial_epoch = 0
@@ -582,7 +566,7 @@ def train(resume_training=False):
 
         if latest_checkpoint:
             try:
-                logging.info(f"Restoring from checkpoint: {latest_checkpoint}")
+                print(f"Restoring from checkpoint: {latest_checkpoint}")
                 status = checkpoint.restore(latest_checkpoint)
                 # For eager execution
                 if hasattr(status, "assert_existing_objects_matched"):
@@ -598,9 +582,6 @@ def train(resume_training=False):
                     # We're in the middle of an epoch, continue from the current step
                     initial_epoch = current_epoch
                     initial_step = current_step
-                    logging.info(
-                        f"Checkpoint restored successfully, resuming from epoch {initial_epoch}, step {initial_step}"
-                    )
                     print(
                         f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}, step {initial_step}"
                     )
@@ -608,27 +589,21 @@ def train(resume_training=False):
                     # We're at the end of an epoch, move to the next epoch
                     initial_epoch = current_epoch + 1
                     initial_step = 0
-                    logging.info(
-                        f"Checkpoint restored successfully, resuming from epoch {initial_epoch}, step {initial_step}"
-                    )
                     print(
                         f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}, step {initial_step}"
                     )
             except Exception as e:
-                logging.error(f"Error restoring checkpoint: {e}")
                 print(f"Failed to restore checkpoint: {e}")
                 # Don't raise exception, just start from scratch
                 resume_training = False
                 initial_epoch = 0
                 initial_step = 0
         else:
-            logging.warning("No checkpoint found, starting training from beginning")
             print("No checkpoint found. Starting fresh training.")
             resume_training = False
             initial_epoch = 0
             initial_step = 0
     else:
-        logging.warning("Starting training from beginning")
         print("Starting fresh training.")
         resume_training = False
         initial_epoch = 0
@@ -650,4 +625,4 @@ def train(resume_training=False):
     checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 
     process_time = datetime.datetime.now() - start_time
-    logging.info(f"Training finished in {process_time/60} minutes")
+    print(f"Training finished in {process_time/60} minutes")
