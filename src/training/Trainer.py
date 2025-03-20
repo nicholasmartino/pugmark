@@ -307,6 +307,8 @@ discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
 # Track training epoch in a TensorFlow variable so it gets saved in the checkpoint
 epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
+# Add a step counter to track step within epoch
+step_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="step_counter")
 
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
@@ -314,6 +316,7 @@ checkpoint = tf.train.Checkpoint(
     generator=generator,
     discriminator=discriminator,
     epoch_counter=epoch_counter,  # Add epoch counter to the checkpoint
+    step_counter=step_counter,  # Add step counter to the checkpoint
 )
 
 """
@@ -382,6 +385,7 @@ def fit(
     checkpoint_directory,
     epochs,
     initial_epoch=0,
+    initial_step=0,  # Add initial step parameter
 ):
     # Set up logging to file
     log_dir = Path(checkpoint_directory).parent / "logs"
@@ -472,12 +476,30 @@ def fit(
 
         # Train
         steps_total = 0
-        for n, (input_image, target) in train_dataset.enumerate():
+
+        # When resuming from a checkpoint in the middle of an epoch, skip to the appropriate step
+        skip_steps = initial_step if epoch == initial_epoch else 0
+        if skip_steps > 0:
+            logging.info(f"Resuming from step {skip_steps} in epoch {epoch+1}")
+            print(f"Resuming from step {skip_steps} in epoch {epoch+1}")
+
+        # Use dataset.skip() to move to the right position if resuming
+        epoch_dataset = train_dataset
+        if skip_steps > 0:
+            epoch_dataset = epoch_dataset.skip(skip_steps)
+
+        for n, (input_image, target) in epoch_dataset.enumerate():
+            # Calculate actual step number (n is 0-based from enumerate)
+            actual_step = n + skip_steps + 1
+            steps_total = actual_step
+
+            # Update step counter
+            step_counter.assign(steps_total)
+
             print(".", end="")
-            steps_total = n + 1
-            if (n + 1) % 100 == 0:
+            if actual_step % 100 == 0:
                 print()
-                logging.info(f"  - Completed {n+1} steps")
+                logging.info(f"  - Completed {actual_step} steps")
 
                 # Save checkpoint every 100 steps for more frequent checkpoints
                 print(f"Saving checkpoint at step {steps_total} (epoch {epoch+1})")
@@ -503,8 +525,18 @@ def fit(
 
             train_step(input_image, target, epoch)
 
+        # At the end of an epoch, reset initial_step for the next epoch
+        initial_step = 0
+
         # Always save checkpoint at the end of each epoch
         print(f"Saving checkpoint at end of epoch {epoch+1} to: {checkpoint_prefix}")
+        try:
+            checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
+            logging.info(f"Epoch checkpoint saved at epoch {epoch+1}")
+            print(f"Epoch checkpoint saved to: {checkpoint_path}")
+        except Exception as e:
+            print(f"Warning: Error saving epoch checkpoint: {e}")
+            logging.warning(f"Error saving epoch checkpoint: {e}")
 
         epoch_time = time.time() - start
         logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
@@ -556,8 +588,9 @@ def train(resume_training=False):
         test_tensor = tf.random.normal([2, 2])
         logging.info(f"Tensor device test: {test_tensor.device}")
 
-    # Default initial epoch
+    # Default initial epoch and step
     initial_epoch = 0
+    initial_step = 0
 
     # Check for existing checkpoint if resuming
     if resume_training:
@@ -602,33 +635,50 @@ def train(resume_training=False):
                     status.assert_existing_objects_matched()
                     print("Checkpoint objects matched existing objects")
 
-                # Get the epoch from the restored checkpoint
-                initial_epoch = (
-                    int(epoch_counter.numpy()) + 1
-                )  # +1 because we want to start with the next epoch
+                # Get the epoch and step from the restored checkpoint
+                current_epoch = int(epoch_counter.numpy())
+                current_step = int(step_counter.numpy())
 
-                logging.info(
-                    f"Checkpoint restored successfully, resuming from epoch {initial_epoch}"
-                )
-                print(
-                    f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}"
-                )
+                # Check if we're in the middle of an epoch or at the beginning of the next one
+                if "_step" in latest_checkpoint:
+                    # We're in the middle of an epoch, continue from the current step
+                    initial_epoch = current_epoch
+                    initial_step = current_step
+                    logging.info(
+                        f"Checkpoint restored successfully, resuming from epoch {initial_epoch+1}, step {initial_step}"
+                    )
+                    print(
+                        f"Successfully restored checkpoint. Resuming from epoch {initial_epoch+1}, step {initial_step}"
+                    )
+                else:
+                    # We're at the end of an epoch, move to the next epoch
+                    initial_epoch = current_epoch + 1
+                    initial_step = 0
+                    logging.info(
+                        f"Checkpoint restored successfully, resuming from epoch {initial_epoch+1}, step {initial_step}"
+                    )
+                    print(
+                        f"Successfully restored checkpoint. Resuming from epoch {initial_epoch+1}, step {initial_step}"
+                    )
             except Exception as e:
                 logging.error(f"Error restoring checkpoint: {e}")
                 print(f"Failed to restore checkpoint: {e}")
                 # Don't raise exception, just start from scratch
                 resume_training = False
                 initial_epoch = 0
+                initial_step = 0
         else:
             logging.warning("No checkpoint found, starting training from beginning")
             print("No checkpoint found. Starting fresh training.")
             resume_training = False
             initial_epoch = 0
+            initial_step = 0
     else:
-        logging.warning("No checkpoint found, starting training from beginning")
-        print("No checkpoint found. Starting fresh training.")
+        logging.warning("Starting training from beginning")
+        print("Starting fresh training.")
         resume_training = False
         initial_epoch = 0
+        initial_step = 0
 
     # Rest of original training code
     fit(
@@ -639,6 +689,7 @@ def train(resume_training=False):
         checkpoint_dir,
         EPOCHS,
         initial_epoch=initial_epoch,
+        initial_step=initial_step,  # Pass the initial step to fit
     )
 
     # restoring the latest checkpoint in checkpoint_dir
