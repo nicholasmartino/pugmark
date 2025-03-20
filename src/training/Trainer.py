@@ -407,6 +407,8 @@ def fit(
     # Ensure the directory marker exists in the bucket
     bucket_name = checkpoint_directory.split("/")[2]
     blob_prefix = "/".join(checkpoint_directory.split("/")[3:])
+
+    client = storage.Client(project=project_id)
     bucket = client.get_bucket(bucket_name)
     bucket.blob(f"{blob_prefix}/").upload_from_string("")
     print(f"Ensured GCS checkpoint directory marker exists: {blob_prefix}/")
