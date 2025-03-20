@@ -478,43 +478,33 @@ def fit(
             if (n + 1) % 100 == 0:
                 print()
                 logging.info(f"  - Completed {n+1} steps")
+
+                # Save checkpoint every 100 steps for more frequent checkpoints
+                print(f"Saving checkpoint at step {steps_total} (epoch {epoch+1})")
+                try:
+                    # Make sure GCS paths are properly formatted for TensorFlow
+                    if checkpoint_prefix.startswith("gs://"):
+                        # Force a directory check/creation before saving
+                        tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
+
+                    step_checkpoint_prefix = (
+                        f"{checkpoint_prefix}_ep{epoch+1}_step{steps_total}"
+                    )
+                    checkpoint_path = checkpoint.save(
+                        file_prefix=step_checkpoint_prefix
+                    )
+                    logging.info(
+                        f"Step checkpoint saved at epoch {epoch+1}, step {steps_total}"
+                    )
+                    print(f"Step checkpoint saved to: {checkpoint_path}")
+                except Exception as e:
+                    print(f"Warning: Error saving step checkpoint: {e}")
+                    logging.warning(f"Error saving step checkpoint: {e}")
+
             train_step(input_image, target, epoch)
 
-        # saving (checkpoint) the model every 20 epochs
-        if (epoch + 1) % 20 == 0:
-            print(
-                f"Attempting to save checkpoint at epoch {epoch+1} to: {checkpoint_prefix}"
-            )
-            try:
-                # Make sure GCS paths are properly formatted for TensorFlow
-                if checkpoint_prefix.startswith("gs://"):
-                    # Force a directory check/creation before saving
-                    tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
-                    print(
-                        f"Verified GCS directory exists for checkpoint: {os.path.dirname(checkpoint_prefix)}"
-                    )
-
-                checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-                logging.info(f"Checkpoint saved at epoch {epoch+1}")
-                print(f"Checkpoint saved to: {checkpoint_path}")
-
-                # Verify files were created
-                if checkpoint_directory.startswith("gs://"):
-                    bucket_name = checkpoint_directory.split("/")[2]
-                    blob_path = "/".join(checkpoint_directory.split("/")[3:])
-
-                    client = storage.Client(project=project_id)
-                    bucket = client.get_bucket(bucket_name)
-                    blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
-                    print(
-                        f"Files in checkpoint directory after save: {[b.name for b in blobs]}"
-                    )
-            except Exception as e:
-                print(f"Error saving checkpoint: {e}")
-                logging.error(f"Error saving checkpoint: {e}")
-                raise Exception(
-                    f"Critical error: Failed to save checkpoint to GCS: {e}"
-                )
+        # Always save checkpoint at the end of each epoch
+        print(f"Saving checkpoint at end of epoch {epoch+1} to: {checkpoint_prefix}")
 
         epoch_time = time.time() - start
         logging.info(f"Time taken for epoch {epoch+1} is {epoch_time:.2f} sec")
