@@ -249,7 +249,6 @@ train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
 train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
 train_dataset = train_dataset.batch(BATCH_SIZE)
-train_dataset = train_dataset.repeat()
 print(train_dataset.element_spec[0])
 
 test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")
