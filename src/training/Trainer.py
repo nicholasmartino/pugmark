@@ -215,13 +215,15 @@ def fit(train_ds, test_ds, epochs):
         print(f"Restoring from checkpoint: {latest_checkpoint}")
         checkpoint.restore(latest_checkpoint)
         start_epoch = int(epoch_counter.numpy())
-        # No need to recalculate step_counter as it's already restored from checkpoint
+        current_global_step = int(step_counter.numpy())
+        epoch_step_offset = current_global_step - (start_epoch * total_steps)
         print(
-            f"Resuming training from epoch {start_epoch + 1} at step {step_counter.numpy()}"
+            f"Resuming training from epoch {start_epoch + 1} at step {current_global_step} (epoch step: {epoch_step_offset})"
         )
     else:
         start_epoch = 0
         step_counter.assign(0)
+        epoch_step_offset = 0
         print("Starting fresh training")
 
     for epoch in range(start_epoch, epochs):
@@ -235,8 +237,15 @@ def fit(train_ds, test_ds, epochs):
 
         print(f"Epoch {epoch+1}/{epochs}")
 
+        # Skip already processed steps in the first epoch after restoration
+        if epoch == start_epoch and epoch_step_offset > 0:
+            train_ds_epoch = train_ds.skip(epoch_step_offset)
+            print(f"Skipping {epoch_step_offset} already processed steps...")
+        else:
+            train_ds_epoch = train_ds
+
         # Training loop with simple progress bar
-        for step, (input_image, target) in enumerate(train_ds):
+        for step, (input_image, target) in enumerate(train_ds_epoch):
             # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
             current_step = step_counter.assign_add(1)
@@ -257,7 +266,8 @@ def fit(train_ds, test_ds, epochs):
             # Calculate ETA
             elapsed = time.time() - start
             if step > 0:
-                eta = elapsed * (total_steps / (step + 1) - 1)
+                remaining_steps = total_steps - (step + 1)
+                eta = elapsed * (remaining_steps / (step + 1))
                 eta_str = f"ETA: {eta:.1f}s"
             else:
                 eta_str = "ETA: --"
