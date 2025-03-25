@@ -17,7 +17,7 @@ from Sampler import downsample, upsample
 
 # Fix the logging first
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
-logging.getLogger("tensorflow").setLevel(logging.WARNING)
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # endregion LOGGING
 
@@ -245,10 +245,11 @@ def fit(train_ds, test_ds, epochs):
             train_ds_epoch = train_ds
 
         # Training loop with simple progress bar
-        for step, (input_image, target) in enumerate(train_ds_epoch):
+        for input_image, target in train_ds_epoch:
             # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
             current_step = step_counter.assign_add(1)
+            step_number = current_step.numpy()
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
             # Save checkpoint every 500 steps
@@ -257,7 +258,7 @@ def fit(train_ds, test_ds, epochs):
                 print(f"\nStep {current_step}: Saved checkpoint to {checkpoint_path}")
 
             # Simple progress bar that's resistant to interruptions
-            progress = min(1.0, (step + 1) / total_steps)
+            progress = min(1.0, (step_number + 1) / total_steps)
             bar_width = 30
             bar = "█" * int(bar_width * progress) + "░" * (
                 bar_width - int(bar_width * progress)
@@ -265,9 +266,9 @@ def fit(train_ds, test_ds, epochs):
 
             # Calculate ETA
             elapsed = time.time() - start
-            if step > 0:
-                remaining_steps = total_steps - (step + 1)
-                eta = elapsed * (remaining_steps / (step + 1))
+            if step_number > 0:
+                remaining_steps = total_steps - (step_number + 1)
+                eta = elapsed * (remaining_steps / (step_number + 1))
                 eta_str = f"ETA: {eta:.1f}s"
             else:
                 eta_str = "ETA: --"
@@ -275,11 +276,11 @@ def fit(train_ds, test_ds, epochs):
             # Force clear entire line before printing progress
             print(f"\r{' ' * 120}", end="")
             print(
-                f"\r[{bar}] {progress*100:3.0f}% | {step+1}/{total_steps} | {eta_str} | Global step: {current_step}",
+                f"\r[{bar}] {progress*100:3.0f}% | {step_number+1}/{total_steps} | {eta_str} | Global step: {current_step}",
                 end="",
             )
 
-            if step + 1 >= total_steps:
+            if step_number + 1 >= total_steps:
                 break
 
         print(f"\nEpoch {epoch+1}: {time.time()-start:.1f}s")
