@@ -336,25 +336,15 @@ def train(resume_training=False):
 
     # Initialize or restore from checkpoint
     checkpoint_prefix = f"{checkpoint_dir}/ckpt"
-    initial_epoch = initial_step = 0
+    initial_epoch = 0
 
     if resume_training:
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
         if latest_checkpoint:
-            # Extract step from checkpoint name if available
-            if "_step" in latest_checkpoint:
-                try:
-                    step_str = latest_checkpoint.split("_step")[1].split("-")[0]
-                    initial_step = int(step_str)
-                except:
-                    pass
-
+            print(f"Found checkpoint: {latest_checkpoint}")
             checkpoint.restore(latest_checkpoint)
             initial_epoch = int(epoch_counter.numpy())
-            if initial_step == 0:
-                initial_step = int(step_counter.numpy())
-            step_counter.assign(initial_step)
-            print(f"Resuming from epoch {initial_epoch}, step {initial_step}")
+            print(f"Resuming from epoch {initial_epoch}")
         else:
             print("No checkpoint found, starting fresh training")
 
@@ -367,14 +357,11 @@ def train(resume_training=False):
         for example_input, example_target in test_dataset.take(1):
             generate_images(generator, example_input, example_target)
 
-        # Train - create fresh dataset to avoid "End of sequence" errors
-        epoch_dataset = train_dataset
-        if initial_step > 0:
-            epoch_dataset = train_dataset.skip(initial_step)
-
+        # Train - always start from the beginning of dataset for each epoch
+        # This avoids OUT_OF_RANGE errors when resuming from checkpoint
         steps_in_epoch = 0
-        for n, (input_image, target) in enumerate(epoch_dataset):
-            actual_step = n + initial_step + 1
+        for n, (input_image, target) in enumerate(train_dataset):
+            actual_step = n + 1
             step_counter.assign(actual_step)
             steps_in_epoch += 1
 
@@ -385,9 +372,6 @@ def train(resume_training=False):
                 checkpoint.save(
                     file_prefix=f"{checkpoint_prefix}_ep{epoch}_step{actual_step}"
                 )
-
-        # Reset for next epoch
-        initial_step = 0
 
         # Save epoch checkpoint
         checkpoint.save(file_prefix=checkpoint_prefix)
