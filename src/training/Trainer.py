@@ -181,15 +181,18 @@ def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
 def fit(train_ds, test_ds, epochs):
     """Trains the model for the specified number of epochs with checkpoint restoration."""
 
+    # Simple approach to get dataset size - count the training files
+    train_files = tf.io.gfile.glob(f"{PATH}/footprints/train/*.png")
+    total_steps = len(train_files) // BATCH_SIZE
+    print(f"Total steps per epoch: {total_steps}")
+
     # Check for existing checkpoints
     latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
     if latest_checkpoint:
         print(f"Restoring from checkpoint: {latest_checkpoint}")
         checkpoint.restore(latest_checkpoint)
         start_epoch = int(epoch_counter.numpy())
-        # Reset step counter if needed
-        global step_counter
-        step_counter.assign(start_epoch * len(train_ds))
+        step_counter.assign(start_epoch * total_steps)
         print(f"Resuming training from epoch {start_epoch + 1}")
     else:
         start_epoch = 0
@@ -199,7 +202,6 @@ def fit(train_ds, test_ds, epochs):
     for epoch in range(start_epoch, epochs):
         # Update epoch counter for checkpoint restoration
         epoch_counter.assign(epoch)
-
         start = time.time()
 
         # Test at the beginning of each epoch
@@ -208,29 +210,45 @@ def fit(train_ds, test_ds, epochs):
 
         print(f"Epoch {epoch+1}/{epochs}")
 
-        # Training
+        # Training loop with progress bar
+        bar_width = 30
         for step, (input_image, target) in enumerate(train_ds):
-            print(".", end="", flush=True)
-            if (step + 1) % 100 == 0:
-                print(f"\nStep {step+1}")
-
-            # Run the training step (doesn't need step parameter)
+            # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
-
-            # Update step counter
             current_step = step_counter.assign_add(1)
-
-            # Log metrics separately (doesn't cause retracing)
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
-        # Save checkpoint every epoch or at specified intervals
+            # Update progress bar
+            progress = min(1.0, (step + 1) / total_steps)
+            filled_length = int(bar_width * progress)
+            bar = "█" * filled_length + "░" * (bar_width - filled_length)
+            percent = progress * 100
+
+            # Calculate ETA
+            elapsed = time.time() - start
+            if step > 0:
+                eta = elapsed * (total_steps / (step + 1) - 1)
+                eta_str = f"ETA: {eta:.1f}s"
+            else:
+                eta_str = "ETA: --"
+
+            # Print progress bar
+            print(
+                f"\r[{bar}] {percent:5.1f}% | Step {step+1}/{total_steps} | {eta_str}",
+                end="",
+            )
+
+            if step + 1 >= total_steps:
+                break
+
+        # End of epoch
+        print(f"\nTime taken: {time.time()-start:.1f}s")
+
+        # Save checkpoint
         if (epoch + 1) % 5 == 0 or epoch == epochs - 1:
-            # Ensure directory exists before saving
             tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
             checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            print(f"\nCheckpoint saved at epoch {epoch+1}: {checkpoint_path}")
-
-        print(f"\nTime taken for epoch {epoch+1}: {time.time()-start:.2f} sec")
+            print(f"Checkpoint saved: {checkpoint_path}")
 
     print("Training completed")
 
