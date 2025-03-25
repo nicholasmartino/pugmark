@@ -215,8 +215,10 @@ def fit(train_ds, test_ds, epochs):
         print(f"Restoring from checkpoint: {latest_checkpoint}")
         checkpoint.restore(latest_checkpoint)
         start_epoch = int(epoch_counter.numpy())
-        step_counter.assign(start_epoch * total_steps)
-        print(f"Resuming training from epoch {start_epoch + 1}")
+        # No need to recalculate step_counter as it's already restored from checkpoint
+        print(
+            f"Resuming training from epoch {start_epoch + 1} at step {step_counter.numpy()}"
+        )
     else:
         start_epoch = 0
         step_counter.assign(0)
@@ -263,7 +265,7 @@ def fit(train_ds, test_ds, epochs):
             # Force clear entire line before printing progress
             print(f"\r{' ' * 120}", end="")
             print(
-                f"\r[{bar}] {progress*100:3.0f}% | {step+1}/{total_steps} | {eta_str}",
+                f"\r[{bar}] {progress*100:3.0f}% | {step+1}/{total_steps} | {eta_str} | Global step: {current_step}",
                 end="",
             )
 
