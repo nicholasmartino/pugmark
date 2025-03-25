@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import time
 
@@ -11,6 +12,16 @@ from Globals import *
 from google.cloud import storage
 from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
+
+# region LOGGING
+
+# Fix the logging first
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
+logging.getLogger("tensorflow").setLevel(logging.WARNING)
+
+# endregion LOGGING
+
+# region GCS
 
 
 # Simple GCS configuration
@@ -37,10 +48,9 @@ def setup_gcs():
 # Initialize GCS and get paths
 fs, log_dir, checkpoint_dir = setup_gcs()
 
-# Initialize summary writer
-summary_writer = tf.summary.create_file_writer(
-    tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-)
+# endregion GCS
+
+# region DATASET
 
 # Load datasets
 train_files = fs.ls(os.path.join(PATH, "footprints/train"))
@@ -49,10 +59,6 @@ test_files = fs.ls(os.path.join(PATH, "footprints/test"))
 # Get sample image shape
 test_files = tf.io.gfile.glob(f"{PATH}/footprints/test/*.png")
 input_image, real_image = load(f"{test_files[0]}")
-
-"""
-INPUT PIPELINE
-"""
 
 train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
@@ -70,6 +76,10 @@ print(down_result.shape)
 up_model = upsample(3, 4)
 up_result = up_model(down_result)
 print(up_result.shape)
+
+# endregion DATASET
+
+# region GENERATOR
 
 generator = Generator()
 tf.keras.utils.plot_model(generator, show_shapes=True)
@@ -90,6 +100,9 @@ plt.imshow(generated[0, ...])
 
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
+# endregion GENERATOR
+
+# region DISCRIMINATOR
 
 discriminator = Discriminator()
 tf.keras.utils.plot_model(discriminator, show_shapes=True)
@@ -98,17 +111,23 @@ discriminated = discriminator([input_image[tf.newaxis, ...], generated], trainin
 # Discriminated image can be plotted with matplotlib
 plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
 
+# endregion DISCRIMINATOR
+
+# region TEST
 
 for example_input, example_target in test_dataset.take(1):
     generate_images(generator, example_input, example_target)
 
+# endregion TEST
 
-"""
-DEFINE THE OPTIMIZERS AND CHECKPOINT-SAVER
-"""
+# region OPTIMIZERS
 
 generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+
+# endregion OPTIMIZERS
+
+# region CHECKPOINT
 
 # Create a simple epoch counter for checkpoint restoration
 epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
@@ -126,9 +145,14 @@ checkpoint = tf.train.Checkpoint(
     step_counter=step_counter,
 )
 
-"""
-TRAINING
-"""
+# endregion CHECKPOINT
+
+# region TRAINING
+
+# Initialize summary writer
+summary_writer = tf.summary.create_file_writer(
+    tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+)
 
 
 @tf.function
@@ -180,8 +204,7 @@ def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
 
 def fit(train_ds, test_ds, epochs):
     """Trains the model for the specified number of epochs with checkpoint restoration."""
-
-    # Simple approach to get dataset size - count the training files
+    # Count training files for progress tracking
     train_files = tf.io.gfile.glob(f"{PATH}/footprints/train/*.png")
     total_steps = len(train_files) // BATCH_SIZE
     print(f"Total steps per epoch: {total_steps}")
@@ -210,19 +233,19 @@ def fit(train_ds, test_ds, epochs):
 
         print(f"Epoch {epoch+1}/{epochs}")
 
-        # Training loop with progress bar
-        bar_width = 30
+        # Training loop with simple progress bar
         for step, (input_image, target) in enumerate(train_ds):
             # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
             current_step = step_counter.assign_add(1)
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
-            # Update progress bar
+            # Simple progress bar that's resistant to interruptions
             progress = min(1.0, (step + 1) / total_steps)
-            filled_length = int(bar_width * progress)
-            bar = "█" * filled_length + "░" * (bar_width - filled_length)
-            percent = progress * 100
+            bar_width = 30
+            bar = "█" * int(bar_width * progress) + "░" * (
+                bar_width - int(bar_width * progress)
+            )
 
             # Calculate ETA
             elapsed = time.time() - start
@@ -232,25 +255,24 @@ def fit(train_ds, test_ds, epochs):
             else:
                 eta_str = "ETA: --"
 
-            # Print progress bar
+            # Force clear entire line before printing progress
+            print(f"\r{' ' * 120}", end="")
             print(
-                f"\r[{bar}] {percent:5.1f}% | Step {step+1}/{total_steps} | {eta_str}",
+                f"\r[{bar}] {progress*100:3.0f}% | {step+1}/{total_steps} | {eta_str}",
                 end="",
             )
 
             if step + 1 >= total_steps:
                 break
 
-        # End of epoch
-        print(f"\nTime taken: {time.time()-start:.1f}s")
+        print(f"\nEpoch {epoch+1}: {time.time()-start:.1f}s")
 
-        # Save checkpoint
+        # Save checkpoint every 5 epochs or at the end
         if (epoch + 1) % 5 == 0 or epoch == epochs - 1:
-            tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
             checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            print(f"Checkpoint saved: {checkpoint_path}")
+            print(f"Saved: {checkpoint_path}")
 
-    print("Training completed")
+    print("Done!")
 
 
 def train(epochs=EPOCHS):
@@ -267,3 +289,6 @@ def train(epochs=EPOCHS):
 
     # Start training
     fit(train_dataset, test_dataset, epochs)
+
+
+# endregion TRAINING
