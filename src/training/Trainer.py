@@ -240,6 +240,11 @@ def fit(train_ds, test_ds, epochs):
             current_step = step_counter.assign_add(1)
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
+            # Save checkpoint every 500 steps
+            if current_step % 500 == 0:
+                checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
+                print(f"\nStep {current_step}: Saved checkpoint to {checkpoint_path}")
+
             # Simple progress bar that's resistant to interruptions
             progress = min(1.0, (step + 1) / total_steps)
             bar_width = 30
