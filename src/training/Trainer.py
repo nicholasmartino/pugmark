@@ -113,6 +113,9 @@ discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 # Create a simple epoch counter for checkpoint restoration
 epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
 
+# Create a step counter variable
+step_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="step_counter")
+
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
@@ -120,6 +123,7 @@ checkpoint = tf.train.Checkpoint(
     generator=generator,
     discriminator=discriminator,
     epoch_counter=epoch_counter,
+    step_counter=step_counter,
 )
 
 """
@@ -128,7 +132,8 @@ TRAINING
 
 
 @tf.function
-def train_step(input_image, target, step):
+def train_step(input_image, target):
+    """Training step function optimized to minimize retracing"""
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         generated = generator(input_image, training=True)
 
@@ -156,11 +161,21 @@ def train_step(input_image, target, step):
         zip(discriminator_gradients, discriminator.trainable_variables)
     )
 
+    return (
+        generator_total_loss,
+        generator_gan_loss,
+        generator_l1_loss,
+        discriminator_loss,
+    )
+
+
+def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
+    """Log training metrics to TensorBoard"""
     with summary_writer.as_default():
-        tf.summary.scalar("gen_total_loss", generator_total_loss, step=step)
-        tf.summary.scalar("gen_gan_loss", generator_gan_loss, step=step)
-        tf.summary.scalar("gen_l1_loss", generator_l1_loss, step=step)
-        tf.summary.scalar("disc_loss", discriminator_loss, step=step)
+        tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
+        tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
+        tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
+        tf.summary.scalar("disc_loss", disc_loss, step=step)
 
 
 def fit(train_ds, test_ds, epochs):
@@ -172,9 +187,13 @@ def fit(train_ds, test_ds, epochs):
         print(f"Restoring from checkpoint: {latest_checkpoint}")
         checkpoint.restore(latest_checkpoint)
         start_epoch = int(epoch_counter.numpy())
+        # Reset step counter if needed
+        global step_counter
+        step_counter.assign(start_epoch * len(train_ds))
         print(f"Resuming training from epoch {start_epoch}")
     else:
         start_epoch = 0
+        step_counter.assign(0)
         print("Starting fresh training")
 
     for epoch in range(start_epoch, epochs):
@@ -195,7 +214,14 @@ def fit(train_ds, test_ds, epochs):
             if (step + 1) % 100 == 0:
                 print(f"\nStep {step+1}")
 
-            train_step(input_image, target, epoch * len(train_ds) + step)
+            # Run the training step (doesn't need step parameter)
+            gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
+
+            # Update step counter
+            current_step = step_counter.assign_add(1)
+
+            # Log metrics separately (doesn't cause retracing)
+            log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
         # Save checkpoint every epoch or at specified intervals
         if (epoch + 1) % 5 == 0 or epoch == epochs - 1:
