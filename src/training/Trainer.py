@@ -15,9 +15,9 @@ from Sampler import downsample, upsample
 
 # Simple GCS configuration
 def setup_gcs():
+    """Configure GCS access with minimal setup."""
     try:
         client = storage.Client()
-        bucket = client.get_bucket("metro-vancouver-regional-district")
         fs = gcsfs.GCSFileSystem(project=client.project)
 
         # Set up directories
@@ -29,13 +29,13 @@ def setup_gcs():
             if not fs.exists(dir_path):
                 fs.mkdir(dir_path)
 
-        return client.project, fs, log_dir, checkpoint_dir
+        return fs, log_dir, checkpoint_dir
     except Exception as e:
         raise Exception(f"Failed to setup GCS: {e}")
 
 
 # Initialize GCS and get paths
-project_id, fs, log_dir, checkpoint_dir = setup_gcs()
+fs, log_dir, checkpoint_dir = setup_gcs()
 
 # Initialize summary writer
 summary_writer = tf.summary.create_file_writer(
@@ -110,34 +110,25 @@ DEFINE THE OPTIMIZERS AND CHECKPOINT-SAVER
 generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
-# Track training epoch in a TensorFlow variable so it gets saved in the checkpoint
+# Create a simple epoch counter for checkpoint restoration
 epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
-# Add a step counter to track step within epoch
-step_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="step_counter")
 
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
     discriminator_optimizer=discriminator_optimizer,
     generator=generator,
     discriminator=discriminator,
-    epoch_counter=epoch_counter,  # Add epoch counter to the checkpoint
-    step_counter=step_counter,  # Add step counter to the checkpoint
+    epoch_counter=epoch_counter,
 )
 
 """
 TRAINING
-* For each example input generate an output.
-* The discriminator receives the input_image and the generated image as the first input. The second input is the 
-input_image and the target_image.
-* Next, we calculate the generator and the discriminator loss.
-* Then, we calculate the gradients of loss with respect to both the generator and the discriminator variables(inputs) 
-and apply those to the optimizer.
-* Then log the losses to TensorBoard.
 """
 
 
 @tf.function
-def train_step(input_image, target, epoch):
+def train_step(input_image, target, step):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         generated = generator(input_image, training=True)
 
@@ -166,217 +157,69 @@ def train_step(input_image, target, epoch):
     )
 
     with summary_writer.as_default():
-        tf.summary.scalar("gen_total_loss", generator_total_loss, step=epoch)
-        tf.summary.scalar("gen_gan_loss", generator_gan_loss, step=epoch)
-        tf.summary.scalar("gen_l1_loss", generator_l1_loss, step=epoch)
-        tf.summary.scalar("disc_loss", discriminator_loss, step=epoch)
+        tf.summary.scalar("gen_total_loss", generator_total_loss, step=step)
+        tf.summary.scalar("gen_gan_loss", generator_gan_loss, step=step)
+        tf.summary.scalar("gen_l1_loss", generator_l1_loss, step=step)
+        tf.summary.scalar("disc_loss", discriminator_loss, step=step)
 
 
-"""
-The actual training loop:
+def fit(train_ds, test_ds, epochs):
+    """Trains the model for the specified number of epochs with checkpoint restoration."""
 
-* Iterates over the number of epochs.
-* On each epoch it clears the display, and runs generate_images to show it's progress.
-* On each epoch it iterates over the training dataset, printing a '.' for each example.
-* It saves a checkpoint every 20 epochs.
-"""
-
-
-def fit(
-    train_dataset,
-    test_dataset,
-    generator,
-    checkpoint,
-    checkpoint_directory,
-    epochs,
-    initial_epoch=0,
-    initial_step=0,  # Add initial step parameter
-):
-    # Set up log file path (for reference only now)
-    log_dir = f"{checkpoint_directory.rsplit('/', 1)[0]}/logs"
-    log_file_path = f"{log_dir}/training_log.txt"
-    print(f"Using GCS log file path: {log_file_path}")
-
-    # Remove logging configuration - we'll only use print statements
-
-    # Log whether we're resuming training
-    if initial_epoch > 0:
-        print(f"Resuming training from epoch {initial_epoch}")
+    # Check for existing checkpoints
+    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    if latest_checkpoint:
+        print(f"Restoring from checkpoint: {latest_checkpoint}")
+        checkpoint.restore(latest_checkpoint)
+        start_epoch = int(epoch_counter.numpy())
+        print(f"Resuming training from epoch {start_epoch}")
     else:
-        print(f"Starting training for {epochs} epochs")
+        start_epoch = 0
+        print("Starting fresh training")
 
-    print(f"Checkpoints will be saved to: {checkpoint_directory}")
-    print(f"Log file location: {log_file_path}")
-
-    # Define checkpoint prefix for GCS
-    checkpoint_prefix = f"{checkpoint_directory}/ckpt"
-
-    # Ensure the directory marker exists in the bucket
-    bucket_name = checkpoint_directory.split("/")[2]
-    blob_prefix = "/".join(checkpoint_directory.split("/")[3:])
-
-    client = storage.Client(project=project_id)
-    bucket = client.get_bucket(bucket_name)
-    bucket.blob(f"{blob_prefix}/").upload_from_string("")
-    print(f"Ensured GCS checkpoint directory marker exists: {blob_prefix}/")
-
-    print(f"Checkpoint prefix: {checkpoint_prefix}")
-
-    start = time.time()
-
-    # Modify the range to start from initial_epoch
-    for epoch in range(initial_epoch, epochs):
-        # Update epoch counter variable
+    for epoch in range(start_epoch, epochs):
+        # Update epoch counter for checkpoint restoration
         epoch_counter.assign(epoch)
 
         start = time.time()
 
-        print(f"Epoch {epoch}/{epochs} - Starting")
-
-        # Test on example batch at start of epoch
-        for example_input, example_target in test_dataset.take(1):
+        # Test at the beginning of each epoch
+        for example_input, example_target in test_ds.take(1):
             generate_images(generator, example_input, example_target)
 
-        print(f"Epoch: {epoch}")
+        print(f"Epoch {epoch+1}/{epochs}")
 
-        # Train
-        steps_total = 0
+        # Training
+        for step, (input_image, target) in enumerate(train_ds):
+            print(".", end="", flush=True)
+            if (step + 1) % 100 == 0:
+                print(f"\nStep {step+1}")
 
-        # When resuming from a checkpoint in the middle of an epoch, skip to the appropriate step
-        skip_steps = initial_step if epoch == initial_epoch else 0
-        if skip_steps > 0:
-            print(f"Resuming from step {skip_steps} in epoch {epoch}")
+            train_step(input_image, target, epoch * len(train_ds) + step)
 
-        # Use dataset.skip() to move to the right position if resuming
-        epoch_dataset = train_dataset
-        if skip_steps > 0:
-            epoch_dataset = epoch_dataset.skip(skip_steps)
-
-        for n, (input_image, target) in epoch_dataset.enumerate():
-            # Calculate actual step number (n is 0-based from enumerate)
-            actual_step = n + skip_steps + 1
-            steps_total = actual_step
-
-            # Update step counter
-            step_counter.assign(steps_total)
-
-            print(".", end="")
-            if actual_step % 100 == 0:
-                print()
-                print(f"  - Completed {actual_step} steps")
-
-                # Save checkpoint every 100 steps for more frequent checkpoints
-                print(f"Saving checkpoint at step {steps_total} (epoch {epoch})")
-                try:
-                    # Force a directory check/creation before saving
-                    tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
-
-                    step_checkpoint_prefix = (
-                        f"{checkpoint_prefix}_ep{epoch}_step{steps_total}"
-                    )
-                    checkpoint_path = checkpoint.save(
-                        file_prefix=step_checkpoint_prefix
-                    )
-                    print(f"Step checkpoint saved at epoch {epoch}, step {steps_total}")
-                    print(f"Step checkpoint saved to: {checkpoint_path}")
-                except Exception as e:
-                    print(f"Warning: Error saving step checkpoint: {e}")
-
-            train_step(input_image, target, epoch)
-
-        # At the end of an epoch, reset initial_step for the next epoch
-        initial_step = 0
-
-        # Always save checkpoint at the end of each epoch
-        print(f"Saving checkpoint at end of epoch {epoch} to: {checkpoint_prefix}")
-        try:
+        # Save checkpoint every epoch or at specified intervals
+        if (epoch + 1) % 5 == 0 or epoch == epochs - 1:
+            # Ensure directory exists before saving
+            tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
             checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            print(f"Epoch checkpoint saved at epoch {epoch}")
-            print(f"Epoch checkpoint saved to: {checkpoint_path}")
-        except Exception as e:
-            print(f"Warning: Error saving epoch checkpoint: {e}")
+            print(f"\nCheckpoint saved at epoch {epoch+1}: {checkpoint_path}")
 
-        epoch_time = time.time() - start
-        print(f"Time taken for epoch {epoch} is {epoch_time:.2f} sec")
-        print(f"Steps completed: {steps_total}")
+        print(f"\nTime taken for epoch {epoch+1}: {time.time()-start:.2f} sec")
 
-    # Final checkpoint
-    print(f"Saving final checkpoint to: {checkpoint_prefix}")
-    try:
-        # Force a directory check/creation before saving
-        tf.io.gfile.makedirs(os.path.dirname(checkpoint_prefix))
-        print(
-            f"Verified GCS directory exists for final checkpoint: {os.path.dirname(checkpoint_prefix)}"
-        )
-
-        checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-        print(f"Training complete - final checkpoint saved")
-        print(f"Final checkpoint saved to: {checkpoint_path}")
-
-        # Verify files were created
-        bucket_name = checkpoint_directory.split("/")[2]
-        blob_path = "/".join(checkpoint_directory.split("/")[3:])
-
-        client = storage.Client(project=project_id)
-        bucket = client.get_bucket(bucket_name)
-        blobs = list(bucket.list_blobs(prefix=blob_path, max_results=10))
-        print(
-            f"Files in checkpoint directory after final save: {[b.name for b in blobs]}"
-        )
-    except Exception as e:
-        print(f"Error saving final checkpoint: {e}")
-        raise Exception(f"Critical error: Failed to save final checkpoint to GCS: {e}")
+    print("Training completed")
 
 
-def train(resume_training=False):
-    # Basic GPU setup
-    gpu_devices = tf.config.list_physical_devices("GPU")
-    if gpu_devices:
-        tf.config.experimental.set_memory_growth(gpu_devices[0], True)
+def train(epochs=EPOCHS):
+    """Main training function."""
+    # Set up GPU if available
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"Using {len(gpus)} GPU(s)")
+        except RuntimeError as e:
+            print(f"GPU setup error: {e}")
 
-    # Initialize or restore from checkpoint
-    checkpoint_prefix = f"{checkpoint_dir}/ckpt"
-    initial_epoch = 0
-
-    if resume_training:
-        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-        if latest_checkpoint:
-            print(f"Found checkpoint: {latest_checkpoint}")
-            checkpoint.restore(latest_checkpoint)
-            initial_epoch = int(epoch_counter.numpy())
-            print(f"Resuming from epoch {initial_epoch}")
-        else:
-            print("No checkpoint found, starting fresh training")
-
-    # Training loop
-    for epoch in range(initial_epoch, EPOCHS):
-        epoch_counter.assign(epoch)
-        start = time.time()
-
-        # Test on example batch
-        for example_input, example_target in test_dataset.take(1):
-            generate_images(generator, example_input, example_target)
-
-        # Train - always start from the beginning of dataset for each epoch
-        # This avoids OUT_OF_RANGE errors when resuming from checkpoint
-        steps_in_epoch = 0
-        for n, (input_image, target) in enumerate(train_dataset):
-            actual_step = n + 1
-            step_counter.assign(actual_step)
-            steps_in_epoch += 1
-
-            train_step(input_image, target, epoch)
-
-            if actual_step % 100 == 0:
-                print(f"\nCompleted {actual_step} steps")
-                checkpoint.save(
-                    file_prefix=f"{checkpoint_prefix}_ep{epoch}_step{actual_step}"
-                )
-
-        # Save epoch checkpoint
-        checkpoint.save(file_prefix=checkpoint_prefix)
-        print(
-            f"\nEpoch {epoch} completed in {time.time() - start:.2f} sec, steps: {steps_in_epoch}"
-        )
-
-    print(f"Training completed")
+    # Start training
+    fit(train_dataset, test_dataset, epochs)
