@@ -12,244 +12,51 @@ from Loader import load, load_image_test, load_image_train
 from Sampler import downsample, upsample
 
 
-# Configure TensorFlow to work properly with GCS
-def configure_tensorflow_for_gcs():
-    # Register the GCS file system with TensorFlow
-    # This is important for tf.io.gfile operations on GCS paths
-    import json
-
-    import tensorflow as tf
-
-    # Create credentials config
-    gcs_credentials = {
-        "bucket": "metro-vancouver-regional-district",
-    }
-
-    # Set environment variables that TensorFlow uses internally
-    os.environ["GCS_RESOLVE_REFRESH_SECS"] = "0"
-
-    # Log TensorFlow GCS configuration
-    print("\n===== CONFIGURING TENSORFLOW FOR GCS =====")
-    print(f"Setting up TensorFlow to work with GCS bucket: {gcs_credentials['bucket']}")
-
-    return True
-
-
-# Configure TensorFlow for GCS
-configure_tensorflow_for_gcs()
-
-start_time = datetime.datetime.now()
-
-
-# Test Google Cloud Storage access in detail
-def test_gcs_access():
-    print("\n===== TESTING GCS ACCESS =====")
-
-    # Skip Colab authentication since it's done manually
-    print("Assuming manual authentication in Colab...")
-
-    # 1. Check environment variables
-    print("\nChecking environment variables...")
-    if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-        print(
-            f"✓ GOOGLE_APPLICATION_CREDENTIALS is set to: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}"
-        )
-    else:
-        print(
-            "✗ GOOGLE_APPLICATION_CREDENTIALS is not set - this is expected in Colab when using user authentication"
-        )
-
-    # Verify project ID environment variable
-    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        print(
-            f"✓ GOOGLE_CLOUD_PROJECT is set to: {os.environ.get('GOOGLE_CLOUD_PROJECT')}"
-        )
-        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    else:
-        print(
-            "✗ GOOGLE_CLOUD_PROJECT is not set, will attempt to detect from credentials"
-        )
-        project_id = None
-
-    # 2. Test bucket access
-    print("\nTesting bucket access...")
+# Simple GCS configuration
+def setup_gcs():
     try:
-        client = storage.Client(project=project_id)
+        client = storage.Client()
         bucket = client.get_bucket("metro-vancouver-regional-district")
-        print(f"✓ Bucket exists: {bucket.exists()}")
+        fs = gcsfs.GCSFileSystem(project=client.project)
 
-        # Get the project ID from the client if we didn't have it
-        if not project_id:
-            project_id = client.project
-            print(f"Detected project ID from client: {project_id}")
+        # Set up directories
+        log_dir = f"{PATH}/footprints/logs"
+        checkpoint_dir = f"{PATH}/footprints/checkpoint"
 
-        # 3. Try writing a test file
-        print("\nTesting write permissions...")
-        test_blob = bucket.blob(
-            f"{PATH.replace('gs://metro-vancouver-regional-district/', '')}/test_write_permissions.txt"
-        )
-        test_blob.upload_from_string("Testing write permissions")
-        print(f"✓ Successfully wrote to: {test_blob.name}")
+        # Create directories if they don't exist
+        for dir_path in [log_dir, checkpoint_dir]:
+            if not fs.exists(dir_path):
+                fs.mkdir(dir_path)
 
-        # 4. Try reading the test file
-        print("\nTesting read permissions...")
-        content = test_blob.download_as_text()
-        print(f"✓ Successfully read content: {content}")
-
-        # 5. Try listing objects
-        print("\nTesting list permissions...")
-        blobs = list(
-            bucket.list_blobs(
-                prefix=f"{PATH.replace('gs://metro-vancouver-regional-district/', '')}/",
-                max_results=5,
-            )
-        )
-        print(f"✓ Listed {len(blobs)} objects in path")
-        for blob in blobs[:5]:  # Show first 5
-            print(f"  - {blob.name}")
-
-        # Clean up test file
-        test_blob.delete()
-        print("✓ Cleaned up test file")
-
-        print("\n✓ ALL GCS PERMISSION TESTS PASSED")
-        return True, project_id
-
+        return client.project, fs, log_dir, checkpoint_dir
     except Exception as e:
-        print(f"✗ GCS access error: {e}")
-        print("\n✗ GCS PERMISSION TESTS FAILED")
-        return False, None
+        raise Exception(f"Failed to setup GCS: {e}")
 
 
-# Run the test
-gcs_access_ok, project_id = test_gcs_access()
-if not gcs_access_ok:
-    # If GCS access fails, raise an exception to stop execution
-    raise Exception(
-        "ERROR: Cannot access Google Cloud Storage. Training cannot proceed."
-    )
+# Initialize GCS and get paths
+project_id, fs, log_dir, checkpoint_dir = setup_gcs()
 
-# Continue with GCS paths
-# Verify bucket access using the project ID we obtained
-client = storage.Client(project=project_id)
-bucket = client.get_bucket("metro-vancouver-regional-district")
-print(f"Bucket exists: {bucket.exists()}")
-
-# Define GCS paths
-log_dir = f"{PATH}/footprints/logs"
-checkpoint_dir = f"{PATH}/footprints/checkpoint"
-
-print(f"Using GCS paths:")
-print(f"- Log directory: {log_dir}")
-print(f"- Checkpoint directory: {checkpoint_dir}")
-
-# Use explicit GCS file system for directory operations
-fs = gcsfs.GCSFileSystem(project=project_id)
-
-
-# Helper function to convert GCS path to directory format
-def ensure_gcs_path_format(path):
-    # Remove 'gs://' prefix if it exists for proper fs.ls() usage
-    if path.startswith("gs://"):
-        # Format correctly for listing operations
-        bucket_name = path.split("/")[2]
-        blob_path = "/".join(path.split("/")[3:])
-        # Return in the format that gcsfs expects for ls operation
-        return blob_path
-    return path
-
-
-# Explicitly create the checkpoint directory in GCS
-try:
-    if not fs.exists(checkpoint_dir):
-        fs.mkdir(checkpoint_dir)
-        print(f"Created checkpoint directory: {checkpoint_dir}")
-    else:
-        print(f"Checkpoint directory already exists: {checkpoint_dir}")
-
-    # List contents to verify - need to use proper path format
-    # Get the bucket name and path
-    bucket_name = checkpoint_dir.split("/")[2]
-    blob_path = "/".join(checkpoint_dir.split("/")[3:])
-
-    # Try listing with different approaches
-    try:
-        # First approach: just list bucket contents
-        print(f"Verifying checkpoint directory using bucket.list_blobs()...")
-        client = storage.Client(project=project_id)
-        bucket = client.get_bucket(bucket_name)
-        blobs = list(bucket.list_blobs(prefix=blob_path, max_results=5))
-        print(f"Found {len(blobs)} objects with prefix {blob_path}")
-    except Exception as e1:
-        print(f"Warning: List using bucket.list_blobs failed: {e1}")
-
-        # Try another approach with fs.ls on parent directory
-        try:
-            parent_dir = os.path.dirname(checkpoint_dir)
-            parent_path = ensure_gcs_path_format(parent_dir)
-            print(f"Trying to list parent directory: {parent_path}")
-            parent_contents = fs.ls(parent_path)
-            print(f"Parent directory contents: {parent_contents}")
-        except Exception as e2:
-            print(f"Warning: List parent directory failed: {e2}")
-            # Continue anyway
-
-    print(f"Checkpoint directory verified and ready.")
-except Exception as e:
-    print(f"Error accessing checkpoint directory: {e}")
-    raise Exception(f"Failed to access or create checkpoint directory: {e}")
-
-# Ensure log directory exists using TensorFlow's file operations
-try:
-    tf.io.gfile.makedirs(log_dir)
-    print(f"Verified log directory: {log_dir}")
-except Exception as e:
-    print(f"Error creating log directory: {e}")
-    raise Exception(f"Failed to create log directory: {e}")
-
-# Initialize summary writer with GCS-compatible path
-global summary_writer
+# Initialize summary writer
 summary_writer = tf.summary.create_file_writer(
     tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 )
 
-# Use project ID for GCS file system
-fs = gcsfs.GCSFileSystem(project=project_id)
+# Load datasets
 train_files = fs.ls(os.path.join(PATH, "footprints/train"))
 test_files = fs.ls(os.path.join(PATH, "footprints/test"))
 
-# Update file listing to use full paths
+# Get sample image shape
 test_files = tf.io.gfile.glob(f"{PATH}/footprints/test/*.png")
 input_image, real_image = load(f"{test_files[0]}")
-print(input_image.shape)
-
-
-# The images below are going through random jittering to
-# 1. Resize an image to bigger height and width
-# 2. Randomly crop to the target size
-# 3. Randomly flip the image horizontally
-
-
-# plt.figure(figsize=(6, 6))
-# for i in range(4):
-#     rj_inp, rj_re = random_jitter(inp, re)
-#     if PLOT:
-#         plt.subplot(2, 2, i + 1)
-#         plt.imshow(rj_inp / 255.0)
-#         plt.axis("off")
-# plt.show()
-
 
 """
 INPUT PIPELINE
 """
 
-# Updated dataset pipeline
 train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
 train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
 train_dataset = train_dataset.batch(BATCH_SIZE)
-print(train_dataset.element_spec[0])
 
 test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
@@ -521,109 +328,60 @@ def fit(
 
 
 def train(resume_training=False):
-    # Add verification checks
-    print(f"TensorFlow version: {tf.__version__}")
+    # Basic GPU setup
     gpu_devices = tf.config.list_physical_devices("GPU")
-    print(f"GPU devices: {gpu_devices}")
+    if gpu_devices:
+        tf.config.experimental.set_memory_growth(gpu_devices[0], True)
 
-    # Force GPU placement test
-    with tf.device("/GPU:0"):
-        test_tensor = tf.random.normal([2, 2])
-        print(f"Tensor device test: {test_tensor.device}")
-
-    # Default initial epoch and step
-    initial_epoch = 0
-    initial_step = 0
-
-    # Check for existing checkpoint if resuming
+    # Initialize or restore from checkpoint
+    checkpoint_prefix = f"{checkpoint_dir}/ckpt"
     if resume_training:
-        # Try to restore the checkpoint
-        print(f"Looking for checkpoints in: {checkpoint_dir}")
-
-        # List all files in the checkpoint directory using the proper GCS format
-        try:
-            bucket_name = checkpoint_dir.split("/")[2]
-            blob_path = "/".join(checkpoint_dir.split("/")[3:])
-
-            client = storage.Client(project=project_id)
-            bucket = client.get_bucket(bucket_name)
-            blobs = list(bucket.list_blobs(prefix=blob_path, max_results=20))
-            if blobs:
-                print(f"Found {len(blobs)} files in checkpoint directory:")
-                for blob in blobs:
-                    print(f"  - {blob.name}")
-            else:
-                print("No files found in checkpoint directory.")
-        except Exception as e:
-            print(f"Warning: Error listing checkpoint directory: {e}")
-
-        # Get the latest checkpoint
-        try:
-            latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-            print(f"Latest checkpoint found: {latest_checkpoint}")
-        except Exception as e:
-            print(f"Error finding latest checkpoint: {e}")
-            latest_checkpoint = None
-
+        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
         if latest_checkpoint:
-            try:
-                print(f"Restoring from checkpoint: {latest_checkpoint}")
-                status = checkpoint.restore(latest_checkpoint)
-                # For eager execution
-                if hasattr(status, "assert_existing_objects_matched"):
-                    status.assert_existing_objects_matched()
-                    print("Checkpoint objects matched existing objects")
-
-                # Get the epoch and step from the restored checkpoint
-                current_epoch = int(epoch_counter.numpy())
-                current_step = int(step_counter.numpy())
-
-                # Check if we're in the middle of an epoch or at the beginning of the next one
-                if "_step" in latest_checkpoint:
-                    # We're in the middle of an epoch, continue from the current step
-                    initial_epoch = current_epoch
-                    initial_step = current_step
-                    print(
-                        f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}, step {initial_step}"
-                    )
-                else:
-                    # We're at the end of an epoch, move to the next epoch
-                    initial_epoch = current_epoch + 1
-                    initial_step = 0
-                    print(
-                        f"Successfully restored checkpoint. Resuming from epoch {initial_epoch}, step {initial_step}"
-                    )
-            except Exception as e:
-                print(f"Failed to restore checkpoint: {e}")
-                # Don't raise exception, just start from scratch
-                resume_training = False
-                initial_epoch = 0
-                initial_step = 0
+            checkpoint.restore(latest_checkpoint)
+            initial_epoch = int(epoch_counter.numpy())
+            initial_step = int(step_counter.numpy())
+            print(f"Resuming from epoch {initial_epoch}, step {initial_step}")
         else:
-            print("No checkpoint found. Starting fresh training.")
-            resume_training = False
-            initial_epoch = 0
-            initial_step = 0
+            initial_epoch = initial_step = 0
+            print("No checkpoint found, starting fresh training")
     else:
-        print("Starting fresh training.")
-        resume_training = False
-        initial_epoch = 0
+        initial_epoch = initial_step = 0
+
+    # Training loop
+    for epoch in range(initial_epoch, EPOCHS):
+        epoch_counter.assign(epoch)
+        start = time.time()
+
+        # Test on example batch
+        for example_input, example_target in test_dataset.take(1):
+            generate_images(generator, example_input, example_target)
+
+        # Train
+        steps_total = 0
+        epoch_dataset = (
+            train_dataset.skip(initial_step)
+            if initial_epoch == epoch and initial_step > 0
+            else train_dataset
+        )
+
+        for n, (input_image, target) in epoch_dataset.enumerate():
+            actual_step = n + initial_step + 1
+            step_counter.assign(actual_step)
+
+            train_step(input_image, target, epoch)
+
+            if actual_step % 100 == 0:
+                print(f"\nCompleted {actual_step} steps")
+                checkpoint.save(
+                    file_prefix=f"{checkpoint_prefix}_ep{epoch}_step{actual_step}"
+                )
+
+        # Reset initial_step for next epoch
         initial_step = 0
 
-    # Rest of original training code
-    fit(
-        train_dataset,
-        test_dataset,
-        generator,
-        checkpoint,
-        checkpoint_dir,
-        EPOCHS,
-        initial_epoch=initial_epoch,
-        initial_step=initial_step,  # Pass the initial step to fit
-    )
+        # Save epoch checkpoint
+        checkpoint.save(file_prefix=checkpoint_prefix)
+        print(f"\nEpoch {epoch} completed in {time.time() - start:.2f} sec")
 
-    # restoring the latest checkpoint in checkpoint_dir
-    checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
-
-    process_time = datetime.datetime.now() - start_time
-    print(f"Training finished in {process_time/60} minutes")
+    print(f"Training completed in {datetime.datetime.now() - start_time}")
