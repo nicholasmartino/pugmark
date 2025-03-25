@@ -190,7 +190,7 @@ def fit(train_ds, test_ds, epochs):
         # Reset step counter if needed
         global step_counter
         step_counter.assign(start_epoch * len(train_ds))
-        print(f"Resuming training from epoch {start_epoch}")
+        print(f"Resuming training from epoch {start_epoch + 1}")
     else:
         start_epoch = 0
         step_counter.assign(0)
