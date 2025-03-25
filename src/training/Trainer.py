@@ -119,8 +119,6 @@ checkpoint = tf.train.Checkpoint(
     discriminator_optimizer=discriminator_optimizer,
     generator=generator,
     discriminator=discriminator,
-    epoch_counter=epoch_counter,  # Add epoch counter to the checkpoint
-    step_counter=step_counter,  # Add step counter to the checkpoint
 )
 
 """
