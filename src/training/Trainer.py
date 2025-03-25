@@ -3,6 +3,7 @@ import os
 import time
 
 import gcsfs
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from Discriminator import Discriminator, calculate_discriminator_loss
 from Generator import Generator, calculate_generator_loss, generate_images
@@ -71,11 +72,11 @@ up_result = up_model(down_result)
 print(up_result.shape)
 
 generator = Generator()
-tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
+tf.keras.utils.plot_model(generator, show_shapes=True)
 
 generated = generator(input_image[tf.newaxis, ...], training=False)
 # Generated image can be plotted with matplotlib
-# plt.imshow(generated[0, ...])
+plt.imshow(generated[0, ...])
 
 
 # Generator loss
@@ -91,11 +92,11 @@ loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
 
 discriminator = Discriminator()
-tf.keras.utils.plot_model(discriminator, show_shapes=True, dpi=64)
+tf.keras.utils.plot_model(discriminator, show_shapes=True)
 
 discriminated = discriminator([input_image[tf.newaxis, ...], generated], training=False)
 # Discriminated image can be plotted with matplotlib
-# plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
+plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
 
 
 for example_input, example_target in test_dataset.take(1):
@@ -119,6 +120,8 @@ checkpoint = tf.train.Checkpoint(
     discriminator_optimizer=discriminator_optimizer,
     generator=generator,
     discriminator=discriminator,
+    epoch_counter=epoch_counter,  # Add epoch counter to the checkpoint
+    step_counter=step_counter,  # Add step counter to the checkpoint
 )
 
 """
@@ -333,18 +336,27 @@ def train(resume_training=False):
 
     # Initialize or restore from checkpoint
     checkpoint_prefix = f"{checkpoint_dir}/ckpt"
+    initial_epoch = initial_step = 0
+
     if resume_training:
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
         if latest_checkpoint:
+            # Extract step from checkpoint name if available
+            if "_step" in latest_checkpoint:
+                try:
+                    step_str = latest_checkpoint.split("_step")[1].split("-")[0]
+                    initial_step = int(step_str)
+                except:
+                    pass
+
             checkpoint.restore(latest_checkpoint)
             initial_epoch = int(epoch_counter.numpy())
-            initial_step = int(step_counter.numpy())
+            if initial_step == 0:
+                initial_step = int(step_counter.numpy())
+            step_counter.assign(initial_step)
             print(f"Resuming from epoch {initial_epoch}, step {initial_step}")
         else:
-            initial_epoch = initial_step = 0
             print("No checkpoint found, starting fresh training")
-    else:
-        initial_epoch = initial_step = 0
 
     # Training loop
     for epoch in range(initial_epoch, EPOCHS):
@@ -355,17 +367,16 @@ def train(resume_training=False):
         for example_input, example_target in test_dataset.take(1):
             generate_images(generator, example_input, example_target)
 
-        # Train
-        steps_total = 0
-        epoch_dataset = (
-            train_dataset.skip(initial_step)
-            if initial_epoch == epoch and initial_step > 0
-            else train_dataset
-        )
+        # Train - create fresh dataset to avoid "End of sequence" errors
+        epoch_dataset = train_dataset
+        if initial_step > 0:
+            epoch_dataset = train_dataset.skip(initial_step)
 
-        for n, (input_image, target) in epoch_dataset.enumerate():
+        steps_in_epoch = 0
+        for n, (input_image, target) in enumerate(epoch_dataset):
             actual_step = n + initial_step + 1
             step_counter.assign(actual_step)
+            steps_in_epoch += 1
 
             train_step(input_image, target, epoch)
 
@@ -375,11 +386,13 @@ def train(resume_training=False):
                     file_prefix=f"{checkpoint_prefix}_ep{epoch}_step{actual_step}"
                 )
 
-        # Reset initial_step for next epoch
+        # Reset for next epoch
         initial_step = 0
 
         # Save epoch checkpoint
         checkpoint.save(file_prefix=checkpoint_prefix)
-        print(f"\nEpoch {epoch} completed in {time.time() - start:.2f} sec")
+        print(
+            f"\nEpoch {epoch} completed in {time.time() - start:.2f} sec, steps: {steps_in_epoch}"
+        )
 
-    print(f"Training completed in {datetime.datetime.now() - start_time}")
+    print(f"Training completed")
