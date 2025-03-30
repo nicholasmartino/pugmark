@@ -22,10 +22,17 @@ def export_model(checkpoint_dir):
     else:
         raise ValueError("No checkpoint found to export")
 
-    # Export directly to TensorFlow.js format using the newer API
-    tfjs.converters.save_keras_model(
-        generator, os.getcwd(), include_optimizer=False, save_format="tfjs"
+    # Save the model in HDF5 format first
+    h5_path = os.path.join(os.getcwd(), "model.h5")
+    generator.save(h5_path)
+
+    # Convert the HDF5 model to TensorFlow.js format
+    tfjs.converters.convert_keras_model_to_tfjs_layers_model(
+        h5_path, os.getcwd(), input_format="keras"
     )
+
+    # Clean up the temporary HDF5 file
+    os.remove(h5_path)
 
     print("Model exported successfully!")
 
