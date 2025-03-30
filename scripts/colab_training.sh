@@ -12,5 +12,5 @@ export GCLOUD_PROJECT=$PROJECT_ID
 gcloud config set project $PROJECT_ID
 
 # install requirements and run training script
-pip install --no-deps --upgrade -r requirements.txt
+pip install --no-deps --upgrade -r src/training/requirements.txt
 python src/training/train.py
