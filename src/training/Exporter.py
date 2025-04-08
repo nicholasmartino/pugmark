@@ -193,7 +193,7 @@ def create_generator_model():
     return tf.keras.Model(inputs=inputs, outputs=x)
 
 
-def export_model(checkpoint_dir):
+def export_model(checkpoint_dir, export_path):
     """Export the generator model to TensorFlow.js format."""
     print(f"Looking for latest checkpoint in {checkpoint_dir}")
     latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
@@ -218,35 +218,35 @@ def export_model(checkpoint_dir):
         print("Restore completed successfully")
 
         # Export model
-        export_to_tfjs(generator)
+        export_to_tfjs(generator, export_path)
 
     except Exception as e:
         print(f"Direct restore failed: {e}")
         print("Attempting manual variable extraction...")
         manual_restore(generator, latest_checkpoint)
-        export_to_tfjs(generator)
+        export_to_tfjs(generator, export_path)
 
 
-def export_to_tfjs(model):
+def export_to_tfjs(model, export_path):
     """Save model to TensorFlow.js format."""
-    export_path = "tmp_saved_model"
+    tmp_path = f"{export_path}_tmp"
 
-    print(f"Saving model to {export_path}")
-    tf.saved_model.save(model, export_path)
+    print(f"Saving model to {tmp_path}")
+    tf.saved_model.save(model, tmp_path)
 
     print("Converting to TensorFlow.js format...")
     tfjs.converters.convert_tf_saved_model(
-        export_path, output_dir="web_model", skip_op_check=True, strip_debug_ops=True
+        tmp_path, output_dir=export_path, skip_op_check=True, strip_debug_ops=True
     )
 
-    print("Model exported successfully to 'web_model/'")
+    print(f"Model exported successfully to '{export_path}'")
 
     # Cleanup
-    if os.path.exists(export_path):
+    if os.path.exists(tmp_path):
         import shutil
 
-        shutil.rmtree(export_path)
-        print(f"Cleaned up temporary directory: {export_path}")
+        shutil.rmtree(tmp_path)
+        print(f"Cleaned up temporary directory: {tmp_path}")
 
 
 def manual_restore(model, checkpoint_path):
@@ -270,4 +270,4 @@ def manual_restore(model, checkpoint_path):
 
 if __name__ == "__main__":
     checkpoint_dir = f"{PATH}/footprints/checkpoint"
-    export_model(checkpoint_dir)
+    export_model(checkpoint_dir, "data/model")
