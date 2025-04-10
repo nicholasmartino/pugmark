@@ -1,7 +1,8 @@
 import os
 
-from Globals import SECRETS_PATH
 from google.cloud import secretmanager, storage
+
+from src.training.Globals import SECRETS_PATH
 
 
 def authenticate_cloud():

@@ -2,7 +2,8 @@ import os
 
 import tensorflow as tf
 import tensorflowjs as tfjs
-from Globals import CHANNELS, PATH
+
+from src.training.Globals import CHANNELS, PATH
 
 
 def create_generator_model():
