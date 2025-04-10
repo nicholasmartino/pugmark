@@ -6,12 +6,14 @@ import time
 import gcsfs
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from Discriminator import Discriminator, calculate_discriminator_loss
-from Generator import Generator, calculate_generator_loss, generate_images
-from Globals import *
 from google.cloud import storage
-from Loader import load, load_image_test, load_image_train
-from Sampler import downsample, upsample
+
+# Using absolute imports which work in all execution contexts
+from src.training.Discriminator import Discriminator, calculate_discriminator_loss
+from src.training.Generator import Generator, calculate_generator_loss, generate_images
+from src.training.Globals import *
+from src.training.Loader import load, load_image_test, load_image_train
+from src.training.Sampler import downsample, upsample
 
 # region LOGGING
 

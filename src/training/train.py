@@ -46,7 +46,8 @@ else:
 
 if __name__ == "__main__":
     try:
-        from Trainer import checkpoint_dir, train
+        # Use absolute imports to ensure consistency
+        from src.training.Trainer import checkpoint_dir, train
 
         # Check for existing checkpoint
         latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)

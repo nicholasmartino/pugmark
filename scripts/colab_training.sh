@@ -11,6 +11,20 @@ export GCLOUD_PROJECT=$PROJECT_ID
 # Configure gcloud CLI with project ID
 gcloud config set project $PROJECT_ID
 
-# install requirements and run training script
+# Navigate to repository root 
+cd /content/pugmark
+
+# Create a .env file to tell Python where to find modules
+echo "PYTHONPATH=/content/pugmark" > .env
+
+# Install requirements
 pip install --no-deps --upgrade -r src/training/requirements.txt
-python src/training/train.py
+
+# Make sure python-dotenv is installed for environment variable loading
+pip install python-dotenv
+
+# Set PYTHONPATH for this session
+export PYTHONPATH=/content/pugmark
+
+# Run the training script as a module
+python -m src.training.train
