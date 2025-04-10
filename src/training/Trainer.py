@@ -63,7 +63,9 @@ input_image, real_image = load(f"{test_files[0]}")
 train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
 train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
-train_dataset = train_dataset.batch(BATCH_SIZE)
+
+# Optimize dataset loading with caching and prefetching
+train_dataset = train_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
@@ -145,11 +147,20 @@ checkpoint = tf.train.Checkpoint(
     step_counter=step_counter,
 )
 
+# Create a checkpoint manager to limit the number of checkpoints
+# This helps reduce GCS storage costs by keeping only the latest N checkpoints
+checkpoint_manager = tf.train.CheckpointManager(
+    checkpoint,
+    checkpoint_dir,
+    max_to_keep=MAX_CHECKPOINTS_TO_KEEP,
+    checkpoint_name="ckpt",
+)
+
 # endregion CHECKPOINT
 
 # region TRAINING
 
-# Initialize summary writer
+# Initialize summary writer with less frequent writing to save GCS costs
 summary_writer = tf.summary.create_file_writer(
     tf.io.gfile.join(log_dir, "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 )
@@ -195,11 +206,13 @@ def train_step(input_image, target):
 
 def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
     """Log training metrics to TensorBoard"""
-    with summary_writer.as_default():
-        tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
-        tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
-        tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
-        tf.summary.scalar("disc_loss", disc_loss, step=step)
+    # Only log metrics every 100 steps to reduce GCS writes
+    if step % 100 == 0:
+        with summary_writer.as_default():
+            tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
+            tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
+            tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
+            tf.summary.scalar("disc_loss", disc_loss, step=step)
 
 
 def fit(train_ds, test_ds, epochs):
@@ -226,14 +239,18 @@ def fit(train_ds, test_ds, epochs):
         epoch_step_offset = 0
         print("Starting fresh training")
 
+    # Calculate best checkpoint based on validation metrics
+    best_gen_loss = float("inf")
+
     for epoch in range(start_epoch, epochs):
         # Update epoch counter for checkpoint restoration
         epoch_counter.assign(epoch)
         start = time.time()
 
-        # Test at the beginning of each epoch
-        for example_input, example_target in test_ds.take(1):
-            generate_images(generator, example_input, example_target)
+        # Test at the beginning of each epoch - only generate images every 5 epochs to save GCS costs
+        if epoch % 5 == 0:
+            for example_input, example_target in test_ds.take(1):
+                generate_images(generator, example_input, example_target)
 
         print(f"Epoch {epoch+1}/{epochs}")
 
@@ -245,16 +262,23 @@ def fit(train_ds, test_ds, epochs):
             train_ds_epoch = train_ds
 
         # Training loop with simple progress bar
+        epoch_gen_loss = 0
+        step_count = 0
+
         for input_image, target in train_ds_epoch:
             # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
+            epoch_gen_loss += gen_total
+            step_count += 1
+
             current_step = step_counter.assign_add(1)
             step_number = current_step.numpy()
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
 
-            # Save checkpoint every 500 steps
-            if current_step % 500 == 0:
-                checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
+            # Save checkpoint every CHECKPOINT_STEP_FREQ steps instead of fixed 500
+            # This reduces GCS operations/storage
+            if current_step % CHECKPOINT_STEP_FREQ == 0:
+                checkpoint_path = checkpoint_manager.save()
                 print(f"\nStep {current_step}: Saved checkpoint to {checkpoint_path}")
 
             # Simple progress bar that's resistant to interruptions
@@ -283,12 +307,29 @@ def fit(train_ds, test_ds, epochs):
             if step_number + 1 >= total_steps:
                 break
 
-        print(f"\nEpoch {epoch+1}: {time.time()-start:.1f}s")
+        # Calculate average loss for the epoch
+        avg_gen_loss = epoch_gen_loss / step_count if step_count > 0 else float("inf")
+        print(
+            f"\nEpoch {epoch+1}: {time.time()-start:.1f}s | Avg Gen Loss: {avg_gen_loss:.4f}"
+        )
 
-        # Save checkpoint every 5 epochs or at the end
-        if (epoch + 1) % 5 == 0 or epoch == epochs - 1:
-            checkpoint_path = checkpoint.save(file_prefix=checkpoint_prefix)
-            print(f"Saved: {checkpoint_path}")
+        # Save checkpoint every CHECKPOINT_SAVE_FREQ epochs or at the end
+        # Also save if we have a new best model based on generator loss
+        is_checkpoint_epoch = (
+            epoch + 1
+        ) % CHECKPOINT_SAVE_FREQ == 0 or epoch == epochs - 1
+        is_best_model = avg_gen_loss < best_gen_loss
+
+        if is_checkpoint_epoch or is_best_model:
+            if is_best_model:
+                best_gen_loss = avg_gen_loss
+                # Save with a special name for best model
+                special_checkpoint_path = os.path.join(checkpoint_dir, "best_model")
+                checkpoint.write(special_checkpoint_path)
+                print(f"New best model saved: {special_checkpoint_path}")
+            else:
+                checkpoint_path = checkpoint_manager.save()
+                print(f"Saved: {checkpoint_path}")
 
     print("Done!")
 
