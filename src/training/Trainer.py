@@ -65,7 +65,7 @@ input_image, real_image = load(f"{test_files[0]}")
 train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
 train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
-train_dataset = train_dataset.cache().batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+train_dataset = train_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
