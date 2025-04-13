@@ -2,7 +2,7 @@
 SECRETS_PATH = "secrets/pugmark-448918-fc1f96c413b4.json"
 PATH = "gs://metro-vancouver-regional-district/processed"
 BUFFER_SIZE = 400
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 IMG_WIDTH = 256
 IMG_HEIGHT = 256
 CHANNELS = 3
