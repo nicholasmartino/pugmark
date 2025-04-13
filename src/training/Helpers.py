@@ -38,7 +38,7 @@ def random_jitter(input_image, real_image):
     # randomly cropping to 256 x 256 x 3
     input_image, real_image = random_crop(input_image, real_image)
 
-    if tf.random.uniform(()).value_index > 0.5:
+    if tf.random.uniform(()) > 0.5:
         # random mirroring
         input_image = tf.image.flip_left_right(input_image)
         real_image = tf.image.flip_left_right(real_image)

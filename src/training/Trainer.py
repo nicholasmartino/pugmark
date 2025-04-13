@@ -206,13 +206,19 @@ def train_step(input_image, target):
 
 def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
     """Log training metrics to TensorBoard"""
-    # Only log metrics every 100 steps to reduce GCS writes
-    if step % 100 == 0:
+    # Log metrics every 50 steps for better monitoring
+    if step % 50 == 0:
         with summary_writer.as_default():
             tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
             tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
             tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
             tf.summary.scalar("disc_loss", disc_loss, step=step)
+
+            # Log balance metrics - values below 0.69 (log(2)) indicate one model is winning
+            is_gen_winning = tf.cast(gen_gan_loss < 0.69, tf.float32)
+            is_disc_winning = tf.cast(disc_loss < 0.69, tf.float32)
+            tf.summary.scalar("gen_winning", is_gen_winning, step=step)
+            tf.summary.scalar("disc_winning", is_disc_winning, step=step)
 
 
 def fit(train_ds, test_ds, epochs):
@@ -263,13 +269,23 @@ def fit(train_ds, test_ds, epochs):
 
         # Training loop with simple progress bar
         epoch_gen_loss = 0
+        epoch_disc_loss = 0
         step_count = 0
+        gen_wins = 0
+        disc_wins = 0
 
         for input_image, target in train_ds_epoch:
             # Run training step
             gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
             epoch_gen_loss += gen_total
+            epoch_disc_loss += disc
             step_count += 1
+
+            # Track win counts for balance monitoring
+            if gen_gan < 0.69:  # log(2) indicates generator is winning
+                gen_wins += 1
+            if disc < 0.69:  # log(2) indicates discriminator is winning
+                disc_wins += 1
 
             current_step = step_counter.assign_add(1)
             step_number = current_step.numpy()
@@ -280,6 +296,20 @@ def fit(train_ds, test_ds, epochs):
             if current_step % CHECKPOINT_STEP_FREQ == 0:
                 checkpoint_path = checkpoint_manager.save()
                 print(f"\nStep {current_step}: Saved checkpoint to {checkpoint_path}")
+
+                # Report training balance every CHECKPOINT_STEP_FREQ steps
+                win_ratio = gen_wins / max(1, (gen_wins + disc_wins))
+                print(
+                    f"Gen/Disc balance: {gen_wins}/{disc_wins} wins (ratio: {win_ratio:.2f})"
+                )
+                if win_ratio > 0.7:
+                    print(
+                        "WARNING: Generator winning too often. Training may be imbalanced."
+                    )
+                elif win_ratio < 0.3:
+                    print(
+                        "WARNING: Discriminator winning too often. Training may be imbalanced."
+                    )
 
             # Simple progress bar that's resistant to interruptions
             progress = min(1.0, (step_number + 1) / total_steps)
@@ -309,9 +339,13 @@ def fit(train_ds, test_ds, epochs):
 
         # Calculate average loss for the epoch
         avg_gen_loss = epoch_gen_loss / step_count if step_count > 0 else float("inf")
+        avg_disc_loss = epoch_disc_loss / step_count if step_count > 0 else float("inf")
+        win_ratio = gen_wins / max(1, (gen_wins + disc_wins))
+
         print(
-            f"\nEpoch {epoch+1}: {time.time()-start:.1f}s | Avg Gen Loss: {avg_gen_loss:.4f}"
+            f"\nEpoch {epoch+1}: {time.time()-start:.1f}s | Avg Gen Loss: {avg_gen_loss:.4f} | Avg Disc Loss: {avg_disc_loss:.4f}"
         )
+        print(f"Gen/Disc balance: {gen_wins}/{disc_wins} wins (ratio: {win_ratio:.2f})")
 
         # Save checkpoint every CHECKPOINT_SAVE_FREQ epochs or at the end
         # Also save if we have a new best model based on generator loss
@@ -345,6 +379,24 @@ def train(epochs=EPOCHS):
             print(f"Using {len(gpus)} GPU(s)")
         except RuntimeError as e:
             print(f"GPU setup error: {e}")
+
+    # Perform a quick dataset check before training
+    print("Checking dataset...")
+    # Check that images have expected range (normalized to [-1, 1])
+    for input_batch, target_batch in train_dataset.take(1):
+        print(f"Input shape: {input_batch.shape}, Target shape: {target_batch.shape}")
+        print(
+            f"Input min/max: {tf.reduce_min(input_batch):.2f}/{tf.reduce_max(input_batch):.2f}"
+        )
+        print(
+            f"Target min/max: {tf.reduce_min(target_batch):.2f}/{tf.reduce_max(target_batch):.2f}"
+        )
+        # Check if values are in [-1, 1] range as expected after normalization
+        if tf.reduce_max(input_batch) > 1.0 or tf.reduce_min(input_batch) < -1.0:
+            print("WARNING: Input images may not be properly normalized to [-1, 1]")
+        if tf.reduce_max(target_batch) > 1.0 or tf.reduce_min(target_batch) < -1.0:
+            print("WARNING: Target images may not be properly normalized to [-1, 1]")
+    print("Dataset check complete")
 
     # Start training
     fit(train_dataset, test_dataset, epochs)
