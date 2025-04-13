@@ -7,7 +7,7 @@ IMG_WIDTH = 256
 IMG_HEIGHT = 256
 CHANNELS = 3
 PLOT = False
-EPOCHS = 1000
+EPOCHS = 300
 LAMBDA = 100
 
 # GCS storage optimization settings
