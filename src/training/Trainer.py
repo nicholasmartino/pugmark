@@ -218,6 +218,12 @@ def fit(train_ds, test_ds, steps=40000):
     # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
+    # Get the latest checkpoint
+    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    if latest_checkpoint:
+        checkpoint.restore(latest_checkpoint)
+        print(f"Restored checkpoint: {latest_checkpoint}")
+
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         # Convert step tensor to Python int
         step_value = int(step.numpy())
