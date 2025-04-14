@@ -1,13 +1,11 @@
 import datetime
 import logging
 import os
-import time
 
 import gcsfs
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from google.cloud import storage
-from IPython import display
 from tqdm.notebook import tqdm
 
 # Using absolute imports which work in all execution contexts
@@ -216,7 +214,6 @@ def train_step(input_image, target, step):
 
 def fit(train_ds, test_ds, steps=40000):
     example_input, example_target = next(iter(test_ds.take(1)))
-    start = time.time()
 
     # Create progress bar
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
@@ -225,39 +222,19 @@ def fit(train_ds, test_ds, steps=40000):
         # Convert step tensor to Python int
         step_value = int(step.numpy())
 
-        if (step_value) % 1000 == 0:
-            display.clear_output(wait=True)
-
-            if step_value != 0:
-                print(f"Time taken for 1000 steps: {time.time()-start:.2f} sec\n")
-
-            start = time.time()
-
-            generate_images(generator, example_input, example_target)
-            print(f"Step: {step_value//1000}k")
-
-            # Reset progress bar after displaying images
-            progress_bar.reset()
-            progress_bar.total = steps - step_value
-            progress_bar.refresh()
+        # Generate and display sample images
+        generate_images(generator, example_input, example_target)
 
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
             input_image, target, step
         )
 
-        # Update progress bar with loss info
-        progress_bar.set_postfix(
-            {
-                "g_loss": f"{gen_total_loss.numpy():.4f}",
-                "d_loss": f"{disc_loss.numpy():.4f}",
-            }
-        )
-        progress_bar.update(1)
-
         # Save (checkpoint) the model every 5k steps
         if (step_value + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
+
+        progress_bar.update(1)
 
     progress_bar.close()
 
