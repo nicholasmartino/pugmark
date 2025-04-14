@@ -215,55 +215,45 @@ def train_step(input_image, target, step):
 def fit(train_ds, test_ds, steps=40000):
     example_input, example_target = next(iter(test_ds.take(1)))
 
-    # Check for existing checkpoints and restore if found
+    # Check for existing checkpoints and restore if found - but only extract global step
     latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-    start_step = 0
-
+    start_epoch = 0
     if latest_checkpoint:
-        # Restore the checkpoint
         checkpoint.restore(latest_checkpoint)
-        # Extract step number from checkpoint path (assuming format includes step number)
-        try:
-            step_str = latest_checkpoint.split("-")[-1]
-            start_step = int(step_str)
-            print(f"Resuming from checkpoint at step {start_step}")
-        except (IndexError, ValueError):
-            print(
-                f"Restored checkpoint but couldn't determine step number: {latest_checkpoint}"
-            )
+        print(f"Restored checkpoint: {latest_checkpoint}")
 
-    # Create progress bar with display_step parameter
-    progress_bar = tqdm(total=steps, desc="Training", unit="step", initial=start_step)
+    # Create a simpler progress bar
+    progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
-    # Calculate remaining steps
-    remaining_steps = steps - start_step
+    # Simple training loop without complex step management
+    for step in range(steps):
+        # Get next batch (simple and fast way)
+        input_image, target = next(iter(train_ds))
 
-    for step, (input_image, target) in (
-        train_ds.repeat().take(remaining_steps).enumerate()
-    ):
-        # Convert step tensor to Python int and add start_step offset
-        step_value = int(step.numpy()) + start_step
-
-        # Train and update metrics
+        # Train step (without step conversion overhead)
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
-            input_image, target, step_value
+            input_image, target, step
         )
 
-        # Update progress bar with metrics and step info
-        if step_value % 100 == 0:  # Only update display occasionally to avoid clutter
+        # Update progress bar with metrics occasionally
+        if step % 100 == 0:
             progress_bar.set_postfix(
                 {
                     "g_loss": f"{gen_total_loss.numpy():.4f}",
                     "d_loss": f"{disc_loss.numpy():.4f}",
-                    "step": step_value,
                 }
             )
 
-        # Save (checkpoint) the model every 5k steps
-        if (step_value + 1) % 5000 == 0:
+        # Generate sample images periodically
+        if step > 0 and step % 1000 == 0:
+            generate_images(generator, example_input, example_target)
+            print(f"\nStep: {step}")
+
+        # Save checkpoint periodically
+        if (step + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
 
-        # Update progress bar (no print)
+        # Update progress bar
         progress_bar.update(1)
 
     progress_bar.close()
