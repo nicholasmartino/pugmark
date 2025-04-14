@@ -215,38 +215,16 @@ def train_step(input_image, target, step):
 def fit(train_ds, test_ds, steps=40000):
     example_input, example_target = next(iter(test_ds.take(1)))
 
-    # Check for existing checkpoints and restore if found
-    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-    start_step = 0
-
-    if latest_checkpoint:
-        # Restore the checkpoint
-        checkpoint.restore(latest_checkpoint)
-        # Extract step number from checkpoint path (assuming format includes step number)
-        try:
-            step_str = latest_checkpoint.split("-")[-1]
-            start_step = int(step_str)
-            print(f"Resuming from checkpoint at step {start_step}")
-        except (IndexError, ValueError):
-            print(
-                f"Restored checkpoint but couldn't determine step number: {latest_checkpoint}"
-            )
-
     # Create progress bar with display_step parameter
-    progress_bar = tqdm(total=steps, desc="Training", unit="step", initial=start_step)
+    progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
-    # Calculate remaining steps
-    remaining_steps = steps - start_step
-
-    for step, (input_image, target) in (
-        train_ds.repeat().take(remaining_steps).enumerate()
-    ):
-        # Convert step tensor to Python int and add start_step offset
-        step_value = int(step.numpy()) + start_step
+    for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
+        # Convert step tensor to Python int
+        step_value = int(step.numpy())
 
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
-            input_image, target, step_value
+            input_image, target, step
         )
 
         # Update progress bar with metrics and step info
