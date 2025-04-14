@@ -25,13 +25,7 @@ def main():
     generator = Generator()
     discriminator = Discriminator()
 
-    # Create placeholder input to build the models (very important for shape initialization)
-    dummy_input = tf.random.normal([1, 256, 256, 3])
-    # Forward pass to initialize weights with the right shapes
-    generator(dummy_input, training=False)
-    discriminator([dummy_input, generator(dummy_input, training=False)], training=False)
-
-    print("Models initialized with correct shapes")
+    print("Models initialized")
 
     # Create optimizers and checkpoint variables
     generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)

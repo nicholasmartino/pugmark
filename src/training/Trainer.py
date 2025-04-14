@@ -13,7 +13,6 @@ from src.training.Discriminator import Discriminator, calculate_discriminator_lo
 from src.training.Generator import Generator, calculate_generator_loss, generate_images
 from src.training.Globals import *
 from src.training.Loader import load, load_image_test, load_image_train
-from src.training.Sampler import downsample, upsample
 
 # region LOGGING
 
@@ -71,13 +70,14 @@ test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")
 test_dataset = test_dataset.map(load_image_test)
 test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
-down_model = downsample(3, 4)
-down_result = down_model(tf.expand_dims(input_image, 0))
-print(down_result.shape)
+# Remove test model code that could interfere with checkpoint saving
+# down_model = downsample(3, 4)
+# down_result = down_model(tf.expand_dims(input_image, 0))
+# print(down_result.shape)
 
-up_model = upsample(3, 4)
-up_result = up_model(down_result)
-print(up_result.shape)
+# up_model = upsample(3, 4)
+# up_result = up_model(down_result)
+# print(up_result.shape)
 
 # endregion DATASET
 
