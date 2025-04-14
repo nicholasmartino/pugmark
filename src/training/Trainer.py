@@ -6,7 +6,7 @@ import gcsfs
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from google.cloud import storage
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 # Using absolute imports which work in all execution contexts
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
@@ -215,7 +215,7 @@ def train_step(input_image, target, step):
 def fit(train_ds, test_ds, steps=40000):
     example_input, example_target = next(iter(test_ds.take(1)))
 
-    # Create progress bar
+    # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
@@ -227,12 +227,22 @@ def fit(train_ds, test_ds, steps=40000):
             input_image, target, step
         )
 
+        # Update progress bar with metrics and step info
+        if step_value % 100 == 0:  # Only update display occasionally to avoid clutter
+            progress_bar.set_postfix(
+                {
+                    "g_loss": f"{gen_total_loss.numpy():.4f}",
+                    "d_loss": f"{disc_loss.numpy():.4f}",
+                    "step": step_value,
+                }
+            )
+
         # Save (checkpoint) the model every 5k steps
         if (step_value + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
 
+        # Update progress bar (no print)
         progress_bar.update(1)
-        print(f"Step: {step_value}")
 
     progress_bar.close()
 
