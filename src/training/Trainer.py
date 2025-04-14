@@ -7,15 +7,11 @@ import gcsfs
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from google.cloud import storage
+from IPython import display
 
 # Using absolute imports which work in all execution contexts
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
-from src.training.Generator import (
-    Generator,
-    calculate_generator_loss,
-    generate_detailed_check_plots,
-    generate_images,
-)
+from src.training.Generator import Generator, calculate_generator_loss, generate_images
 from src.training.Globals import *
 from src.training.Loader import load, load_image_test, load_image_train
 from src.training.Sampler import downsample, upsample
@@ -89,7 +85,7 @@ print(up_result.shape)
 # region GENERATOR
 
 generator = Generator()
-tf.keras.utils.plot_model(generator, show_shapes=True)
+tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
 generated = generator(input_image[tf.newaxis, ...], training=False)
 # Generated image can be plotted with matplotlib
@@ -120,13 +116,6 @@ plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
 
 # endregion DISCRIMINATOR
 
-# region TEST
-
-for example_input, example_target in test_dataset.take(1):
-    generate_images(generator, example_input, example_target)
-
-# endregion TEST
-
 # region OPTIMIZERS
 
 generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
@@ -136,32 +125,22 @@ discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 
 # region CHECKPOINT
 
-# Create a simple epoch counter for checkpoint restoration
-epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="epoch_counter")
-
-# Create a step counter variable
-step_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="step_counter")
-
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(
     generator_optimizer=generator_optimizer,
     discriminator_optimizer=discriminator_optimizer,
     generator=generator,
     discriminator=discriminator,
-    epoch_counter=epoch_counter,
-    step_counter=step_counter,
-)
-
-# Create a checkpoint manager to limit the number of checkpoints
-# This helps reduce GCS storage costs by keeping only the latest N checkpoints
-checkpoint_manager = tf.train.CheckpointManager(
-    checkpoint,
-    checkpoint_dir,
-    max_to_keep=MAX_CHECKPOINTS_TO_KEEP,
-    checkpoint_name="ckpt",
 )
 
 # endregion CHECKPOINT
+
+# region TEST
+
+for example_input, example_target in test_dataset.take(1):
+    generate_images(generator, example_input, example_target)
+
+# endregion TEST
 
 # region TRAINING
 
@@ -226,158 +205,31 @@ def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
             tf.summary.scalar("disc_winning", is_disc_winning, step=step)
 
 
-def fit(train_ds, test_ds, epochs):
-    """Trains the model for the specified number of epochs with checkpoint restoration."""
-    # Count training files for progress tracking
-    train_files = tf.io.gfile.glob(f"{PATH}/footprints/train/*.png")
-    total_steps = len(train_files) // BATCH_SIZE
-    print(f"Total steps per epoch: {total_steps}")
+def fit(train_ds, test_ds, steps=40000):
+    example_input, example_target = next(iter(test_ds.take(1)))
+    start = time.time()
 
-    # Check for existing checkpoints
-    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-    if latest_checkpoint:
-        print(f"Restoring from checkpoint: {latest_checkpoint}")
-        checkpoint.restore(latest_checkpoint)
-        start_epoch = int(epoch_counter.numpy())
-        current_global_step = int(step_counter.numpy())
-        epoch_step_offset = current_global_step - (start_epoch * total_steps)
-        print(
-            f"Resuming training from epoch {start_epoch + 1} at step {current_global_step} (epoch step: {epoch_step_offset})"
-        )
-    else:
-        start_epoch = 0
-        step_counter.assign(0)
-        epoch_step_offset = 0
-        print("Starting fresh training")
+    for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
+        if (step) % 1000 == 0:
+            display.clear_output(wait=True)
 
-    # Calculate best checkpoint based on validation metrics
-    best_gen_loss = float("inf")
+            if step != 0:
+                print(f"Time taken for 1000 steps: {time.time()-start:.2f} sec\n")
 
-    # Create a prediction history buffer for visualization
-    prediction_history = []
-    check_example_input = None
-    check_example_target = None
+            start = time.time()
 
-    # Get a single example for consistent check plots
-    for example_input, example_target in test_ds.take(1):
-        check_example_input = example_input
-        check_example_target = example_target
-        # Generate initial detailed check plot
-        if PLOT:
-            print("Generating initial check plot...")
-            generate_detailed_check_plots(
-                generator,
-                check_example_input,
-                check_example_target,
-                prediction_history,
-                0,
-            )
+            generate_images(generator, example_input, example_target)
+            print(f"Step: {step//1000}k")
 
-    for epoch in range(start_epoch, epochs):
-        # Update epoch counter for checkpoint restoration
-        epoch_counter.assign(epoch)
-        start = time.time()
+        train_step(input_image, target, step)
 
-        # Test at the beginning of each epoch - only generate detailed check plots every 5 epochs to save GCS costs
-        if epoch % 5 == 0 and check_example_input is not None:
-            print(f"Generating detailed check plot for epoch {epoch+1}...")
-            prediction = generate_detailed_check_plots(
-                generator,
-                check_example_input,
-                check_example_target,
-                prediction_history,
-                int(step_counter.numpy()),
-            )
-            # Store the prediction for history tracking (only keep the most recent 20)
-            if len(prediction_history) >= 20:
-                prediction_history.pop(0)  # Remove oldest
-            prediction_history.append(prediction)
-        # For other epochs, just generate a simple plot
-        elif check_example_input is not None:
-            generate_images(generator, check_example_input, check_example_target)
+        # Training step
+        if (step + 1) % 10 == 0:
+            print(".", end="", flush=True)
 
-        print(f"Epoch {epoch+1}/{epochs}")
-
-        # Skip already processed steps in the first epoch after restoration
-        if epoch == start_epoch and epoch_step_offset > 0:
-            train_ds_epoch = train_ds.skip(epoch_step_offset)
-            print(f"Skipping {epoch_step_offset} already processed steps...")
-        else:
-            train_ds_epoch = train_ds
-
-        # Training loop with simple progress bar
-        epoch_gen_loss = 0
-        epoch_disc_loss = 0
-        step_count = 0
-        gen_wins = 0
-        disc_wins = 0
-
-        for input_image, target in train_ds_epoch:
-            # Run training step
-            gen_total, gen_gan, gen_l1, disc = train_step(input_image, target)
-            epoch_gen_loss += gen_total
-            epoch_disc_loss += disc
-            step_count += 1
-
-            # Track win counts for balance monitoring
-            if gen_gan < 0.69:  # log(2) indicates generator is winning
-                gen_wins += 1
-            if disc < 0.69:  # log(2) indicates discriminator is winning
-                disc_wins += 1
-
-            current_step = step_counter.assign_add(1)
-            step_number = current_step.numpy()
-            log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
-
-            # Simple progress bar that's resistant to interruptions
-            progress = min(1.0, (step_number + 1) / total_steps)
-            bar_width = 30
-            bar = "█" * int(bar_width * progress) + "░" * (
-                bar_width - int(bar_width * progress)
-            )
-
-            # Calculate ETA
-            elapsed = time.time() - start
-            if step_number > 0:
-                remaining_steps = total_steps - (step_number + 1)
-                eta = elapsed * (remaining_steps / (step_number + 1))
-                eta_str = f"ETA: {eta:.1f}s"
-            else:
-                eta_str = "ETA: --"
-
-            # Force clear entire line before printing progress
-            print(f"\r{' ' * 120}", end="")
-            print(
-                f"\r[{bar}] {progress*100:3.0f}% | {step_number+1}/{total_steps} | {eta_str} | Global step: {current_step}",
-                end="",
-            )
-
-            if step_number + 1 >= total_steps:
-                break
-
-        # Calculate average loss for the epoch
-        avg_gen_loss = epoch_gen_loss / step_count if step_count > 0 else float("inf")
-        avg_disc_loss = epoch_disc_loss / step_count if step_count > 0 else float("inf")
-        win_ratio = gen_wins / max(1, (gen_wins + disc_wins))
-
-        print(
-            f"\nEpoch {epoch+1}: {time.time()-start:.1f}s | Avg Gen Loss: {avg_gen_loss:.4f} | Avg Disc Loss: {avg_disc_loss:.4f}"
-        )
-        print(f"Gen/Disc balance: {gen_wins}/{disc_wins} wins (ratio: {win_ratio:.2f})")
-
-        # Save checkpoint at the end of each epoch
-        checkpoint_path = checkpoint_manager.save()
-        print(f"Saved checkpoint to {checkpoint_path}")
-
-        # Also save a special checkpoint if this is the best model so far
-        if avg_gen_loss < best_gen_loss:
-            best_gen_loss = avg_gen_loss
-            # Save with a special name for best model
-            special_checkpoint_path = os.path.join(checkpoint_dir, "best_model")
-            checkpoint.write(special_checkpoint_path)
-            print(f"New best model saved: {special_checkpoint_path}")
-
-    print("Done!")
+        # Save (checkpoint) the model every 5k steps
+        if (step + 1) % 5000 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
 
 
 def train(epochs=EPOCHS):
@@ -411,7 +263,7 @@ def train(epochs=EPOCHS):
     print("Dataset check complete")
 
     # Start training
-    fit(train_dataset, test_dataset, epochs)
+    fit(train_dataset, test_dataset)
 
 
 # endregion TRAINING
