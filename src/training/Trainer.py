@@ -232,6 +232,7 @@ def fit(train_ds, test_ds, steps=40000):
             checkpoint.save(file_prefix=checkpoint_prefix)
 
         progress_bar.update(1)
+        print(f"Step: {step_value}")
 
     progress_bar.close()
 
