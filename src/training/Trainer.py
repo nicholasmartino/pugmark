@@ -222,20 +222,23 @@ def fit(train_ds, test_ds, steps=40000):
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
-        if (step) % 1000 == 0:
+        # Convert step tensor to Python int
+        step_value = int(step.numpy())
+
+        if (step_value) % 1000 == 0:
             display.clear_output(wait=True)
 
-            if step != 0:
+            if step_value != 0:
                 print(f"Time taken for 1000 steps: {time.time()-start:.2f} sec\n")
 
             start = time.time()
 
             generate_images(generator, example_input, example_target)
-            print(f"Step: {step//1000}k")
+            print(f"Step: {step_value//1000}k")
 
             # Reset progress bar after displaying images
             progress_bar.reset()
-            progress_bar.total = steps - step
+            progress_bar.total = steps - step_value
             progress_bar.refresh()
 
         # Train and update metrics
@@ -253,7 +256,7 @@ def fit(train_ds, test_ds, steps=40000):
         progress_bar.update(1)
 
         # Save (checkpoint) the model every 5k steps
-        if (step + 1) % 5000 == 0:
+        if (step_value + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
 
     progress_bar.close()
