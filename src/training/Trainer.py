@@ -222,9 +222,6 @@ def fit(train_ds, test_ds, steps=40000):
         # Convert step tensor to Python int
         step_value = int(step.numpy())
 
-        # Generate and display sample images
-        generate_images(generator, example_input, example_target)
-
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
             input_image, target, step
