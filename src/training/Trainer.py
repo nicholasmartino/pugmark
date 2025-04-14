@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from google.cloud import storage
 from IPython import display
+from tqdm.notebook import tqdm
 
 # Using absolute imports which work in all execution contexts
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
@@ -217,6 +218,9 @@ def fit(train_ds, test_ds, steps=40000):
     example_input, example_target = next(iter(test_ds.take(1)))
     start = time.time()
 
+    # Create progress bar
+    progress_bar = tqdm(total=steps, desc="Training", unit="step")
+
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         if (step) % 1000 == 0:
             display.clear_output(wait=True)
@@ -229,15 +233,30 @@ def fit(train_ds, test_ds, steps=40000):
             generate_images(generator, example_input, example_target)
             print(f"Step: {step//1000}k")
 
-        train_step(input_image, target, step)
+            # Reset progress bar after displaying images
+            progress_bar.reset()
+            progress_bar.total = steps - step
+            progress_bar.refresh()
 
-        # Training step
-        if (step + 1) % 10 == 0:
-            print(".", end="", flush=True)
+        # Train and update metrics
+        gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
+            input_image, target, step
+        )
+
+        # Update progress bar with loss info
+        progress_bar.set_postfix(
+            {
+                "g_loss": f"{gen_total_loss.numpy():.4f}",
+                "d_loss": f"{disc_loss.numpy():.4f}",
+            }
+        )
+        progress_bar.update(1)
 
         # Save (checkpoint) the model every 5k steps
         if (step + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
+
+    progress_bar.close()
 
 
 def train(epochs=EPOCHS):
