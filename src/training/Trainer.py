@@ -10,7 +10,12 @@ from google.cloud import storage
 
 # Using absolute imports which work in all execution contexts
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
-from src.training.Generator import Generator, calculate_generator_loss, generate_images
+from src.training.Generator import (
+    Generator,
+    calculate_generator_loss,
+    generate_detailed_check_plots,
+    generate_images,
+)
 from src.training.Globals import *
 from src.training.Loader import load, load_image_test, load_image_train
 from src.training.Sampler import downsample, upsample
@@ -248,15 +253,48 @@ def fit(train_ds, test_ds, epochs):
     # Calculate best checkpoint based on validation metrics
     best_gen_loss = float("inf")
 
+    # Create a prediction history buffer for visualization
+    prediction_history = []
+    check_example_input = None
+    check_example_target = None
+
+    # Get a single example for consistent check plots
+    for example_input, example_target in test_ds.take(1):
+        check_example_input = example_input
+        check_example_target = example_target
+        # Generate initial detailed check plot
+        if PLOT:
+            print("Generating initial check plot...")
+            generate_detailed_check_plots(
+                generator,
+                check_example_input,
+                check_example_target,
+                prediction_history,
+                0,
+            )
+
     for epoch in range(start_epoch, epochs):
         # Update epoch counter for checkpoint restoration
         epoch_counter.assign(epoch)
         start = time.time()
 
-        # Test at the beginning of each epoch - only generate images every 5 epochs to save GCS costs
-        if epoch % 5 == 0:
-            for example_input, example_target in test_ds.take(1):
-                generate_images(generator, example_input, example_target)
+        # Test at the beginning of each epoch - only generate detailed check plots every 5 epochs to save GCS costs
+        if epoch % 5 == 0 and check_example_input is not None:
+            print(f"Generating detailed check plot for epoch {epoch+1}...")
+            prediction = generate_detailed_check_plots(
+                generator,
+                check_example_input,
+                check_example_target,
+                prediction_history,
+                int(step_counter.numpy()),
+            )
+            # Store the prediction for history tracking (only keep the most recent 20)
+            if len(prediction_history) >= 20:
+                prediction_history.pop(0)  # Remove oldest
+            prediction_history.append(prediction)
+        # For other epochs, just generate a simple plot
+        elif check_example_input is not None:
+            generate_images(generator, check_example_input, check_example_target)
 
         print(f"Epoch {epoch+1}/{epochs}")
 
@@ -290,26 +328,6 @@ def fit(train_ds, test_ds, epochs):
             current_step = step_counter.assign_add(1)
             step_number = current_step.numpy()
             log_metrics(gen_total, gen_gan, gen_l1, disc, current_step)
-
-            # Save checkpoint every CHECKPOINT_STEP_FREQ steps instead of fixed 500
-            # This reduces GCS operations/storage
-            if current_step % CHECKPOINT_STEP_FREQ == 0:
-                checkpoint_path = checkpoint_manager.save()
-                print(f"\nStep {current_step}: Saved checkpoint to {checkpoint_path}")
-
-                # Report training balance every CHECKPOINT_STEP_FREQ steps
-                win_ratio = gen_wins / max(1, (gen_wins + disc_wins))
-                print(
-                    f"Gen/Disc balance: {gen_wins}/{disc_wins} wins (ratio: {win_ratio:.2f})"
-                )
-                if win_ratio > 0.7:
-                    print(
-                        "WARNING: Generator winning too often. Training may be imbalanced."
-                    )
-                elif win_ratio < 0.3:
-                    print(
-                        "WARNING: Discriminator winning too often. Training may be imbalanced."
-                    )
 
             # Simple progress bar that's resistant to interruptions
             progress = min(1.0, (step_number + 1) / total_steps)
@@ -347,23 +365,17 @@ def fit(train_ds, test_ds, epochs):
         )
         print(f"Gen/Disc balance: {gen_wins}/{disc_wins} wins (ratio: {win_ratio:.2f})")
 
-        # Save checkpoint every CHECKPOINT_SAVE_FREQ epochs or at the end
-        # Also save if we have a new best model based on generator loss
-        is_checkpoint_epoch = (
-            epoch + 1
-        ) % CHECKPOINT_SAVE_FREQ == 0 or epoch == epochs - 1
-        is_best_model = avg_gen_loss < best_gen_loss
+        # Save checkpoint at the end of each epoch
+        checkpoint_path = checkpoint_manager.save()
+        print(f"Saved checkpoint to {checkpoint_path}")
 
-        if is_checkpoint_epoch or is_best_model:
-            if is_best_model:
-                best_gen_loss = avg_gen_loss
-                # Save with a special name for best model
-                special_checkpoint_path = os.path.join(checkpoint_dir, "best_model")
-                checkpoint.write(special_checkpoint_path)
-                print(f"New best model saved: {special_checkpoint_path}")
-            else:
-                checkpoint_path = checkpoint_manager.save()
-                print(f"Saved: {checkpoint_path}")
+        # Also save a special checkpoint if this is the best model so far
+        if avg_gen_loss < best_gen_loss:
+            best_gen_loss = avg_gen_loss
+            # Save with a special name for best model
+            special_checkpoint_path = os.path.join(checkpoint_dir, "best_model")
+            checkpoint.write(special_checkpoint_path)
+            print(f"New best model saved: {special_checkpoint_path}")
 
     print("Done!")
 
