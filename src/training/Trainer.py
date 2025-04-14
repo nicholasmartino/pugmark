@@ -150,8 +150,25 @@ summary_writer = tf.summary.create_file_writer(
 )
 
 
+def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
+    """Log training metrics to TensorBoard"""
+    # Log metrics every 50 steps for better monitoring
+    if step % 50 == 0:
+        with summary_writer.as_default():
+            tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
+            tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
+            tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
+            tf.summary.scalar("disc_loss", disc_loss, step=step)
+
+            # Log balance metrics - values below 0.69 (log(2)) indicate one model is winning
+            is_gen_winning = tf.cast(gen_gan_loss < 0.69, tf.float32)
+            is_disc_winning = tf.cast(disc_loss < 0.69, tf.float32)
+            tf.summary.scalar("gen_winning", is_gen_winning, step=step)
+            tf.summary.scalar("disc_winning", is_disc_winning, step=step)
+
+
 @tf.function
-def train_step(input_image, target):
+def train_step(input_image, target, step):
     """Training step function optimized to minimize retracing"""
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         generated = generator(input_image, training=True)
@@ -180,29 +197,20 @@ def train_step(input_image, target):
         zip(discriminator_gradients, discriminator.trainable_variables)
     )
 
+    log_metrics(
+        generator_total_loss,
+        generator_gan_loss,
+        generator_l1_loss,
+        discriminator_loss,
+        step,
+    )
+
     return (
         generator_total_loss,
         generator_gan_loss,
         generator_l1_loss,
         discriminator_loss,
     )
-
-
-def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
-    """Log training metrics to TensorBoard"""
-    # Log metrics every 50 steps for better monitoring
-    if step % 50 == 0:
-        with summary_writer.as_default():
-            tf.summary.scalar("gen_total_loss", gen_total_loss, step=step)
-            tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=step)
-            tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=step)
-            tf.summary.scalar("disc_loss", disc_loss, step=step)
-
-            # Log balance metrics - values below 0.69 (log(2)) indicate one model is winning
-            is_gen_winning = tf.cast(gen_gan_loss < 0.69, tf.float32)
-            is_disc_winning = tf.cast(disc_loss < 0.69, tf.float32)
-            tf.summary.scalar("gen_winning", is_gen_winning, step=step)
-            tf.summary.scalar("disc_winning", is_disc_winning, step=step)
 
 
 def fit(train_ds, test_ds, steps=40000):
