@@ -7,8 +7,8 @@ IMG_WIDTH = 256
 IMG_HEIGHT = 256
 CHANNELS = 3
 PLOT = True
-EPOCHS = 300
 LAMBDA = 100
+STEPS = 40000
 
 # GCS storage optimization settings
 MAX_CHECKPOINTS_TO_KEEP = 5

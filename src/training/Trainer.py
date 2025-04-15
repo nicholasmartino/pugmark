@@ -8,7 +8,6 @@ import tensorflow as tf
 from google.cloud import storage
 from tqdm import tqdm
 
-# Using absolute imports which work in all execution contexts
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
 from src.training.Generator import Generator, calculate_generator_loss, generate_images
 from src.training.Globals import *
@@ -33,7 +32,7 @@ def setup_gcs():
         fs = gcsfs.GCSFileSystem(project=client.project)
 
         # Create directories if they don't exist
-        for dir_path in [log_dir, checkpoint_dir]:
+        for dir_path in [log_dir, checkpoint_dir, model_dir]:
             if not fs.exists(dir_path):
                 fs.mkdir(dir_path)
 
@@ -48,6 +47,7 @@ if "google.colab" in sys.modules:
 
 log_dir = f"{PATH}/footprints/logs"
 checkpoint_dir = f"{PATH}/footprints/checkpoint"
+model_dir = f"{PATH}/footprints/model"
 
 # endregion GCS
 
@@ -198,7 +198,7 @@ def train_step(input_image, target, step):
     )
 
 
-def fit(train_ds, test_ds, steps=40000):
+def fit(train_ds, test_ds, steps=STEPS):
     example_input, example_target = next(iter(test_ds.take(1)))
 
     # Create progress bar with display_step parameter
@@ -233,13 +233,19 @@ def fit(train_ds, test_ds, steps=40000):
         if (step_value + 1) % 5000 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
 
+        # Save the full generator model every 10k steps (architecture + weights)
+        if (step_value + 1) % 10000 == 0:
+            saved_model_path = f"{model_dir}/model_{step_value+1}"
+            tf.saved_model.save(generator, saved_model_path)
+            print(f"Generator model saved to {saved_model_path}")
+
         # Update progress bar (no print)
         progress_bar.update(1)
 
     progress_bar.close()
 
 
-def train(epochs=EPOCHS):
+def train():
     """Main training function."""
     # Set up GPU if available
     gpus = tf.config.list_physical_devices("GPU")
