@@ -1,9 +1,9 @@
 import datetime
 import logging
 import os
+import sys
 
 import gcsfs
-import matplotlib.pyplot as plt
 import tensorflow as tf
 from google.cloud import storage
 from tqdm import tqdm
@@ -12,7 +12,7 @@ from tqdm import tqdm
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
 from src.training.Generator import Generator, calculate_generator_loss, generate_images
 from src.training.Globals import *
-from src.training.Loader import load, load_image_test, load_image_train
+from src.training.Loader import load_image_test, load_image_train
 
 # region LOGGING
 
@@ -32,35 +32,30 @@ def setup_gcs():
         client = storage.Client()
         fs = gcsfs.GCSFileSystem(project=client.project)
 
-        # Set up directories
-        log_dir = f"{PATH}/footprints/logs"
-        checkpoint_dir = f"{PATH}/footprints/checkpoint"
-
         # Create directories if they don't exist
         for dir_path in [log_dir, checkpoint_dir]:
             if not fs.exists(dir_path):
                 fs.mkdir(dir_path)
 
-        return fs, log_dir, checkpoint_dir
+        return fs
     except Exception as e:
         raise Exception(f"Failed to setup GCS: {e}")
 
 
-# Initialize GCS and get paths
-fs, log_dir, checkpoint_dir = setup_gcs()
+# if running on GCP, use the following
+if "google.colab" in sys.modules:
+    fs = setup_gcs()
+
+log_dir = f"{PATH}/footprints/logs"
+checkpoint_dir = f"{PATH}/footprints/checkpoint"
 
 # endregion GCS
 
 # region DATASET
 
 # Load datasets
-train_files = fs.ls(os.path.join(PATH, "footprints/train"))
-test_files = fs.ls(os.path.join(PATH, "footprints/test"))
 
 # Get sample image shape
-test_files = tf.io.gfile.glob(f"{PATH}/footprints/test/*.png")
-input_image, real_image = load(f"{test_files[0]}")
-
 train_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/train/*.png")
 train_dataset = train_dataset.shuffle(buffer_size=1000)
 train_dataset = train_dataset.map(load_image_train, num_parallel_calls=tf.data.AUTOTUNE)
@@ -86,11 +81,6 @@ test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 generator = Generator()
 tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
-generated = generator(input_image[tf.newaxis, ...], training=False)
-# Generated image can be plotted with matplotlib
-plt.imshow(generated[0, ...])
-
-
 # Generator loss
 
 # It is a sigmoid cross entropy loss of the generated images and an array of ones. The paper also includes L1 loss
@@ -108,10 +98,6 @@ loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
 discriminator = Discriminator()
 tf.keras.utils.plot_model(discriminator, show_shapes=True)
-
-discriminated = discriminator([input_image[tf.newaxis, ...], generated], training=False)
-# Discriminated image can be plotted with matplotlib
-plt.imshow(discriminated[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
 
 # endregion DISCRIMINATOR
 

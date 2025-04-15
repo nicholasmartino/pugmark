@@ -3,10 +3,16 @@ import os
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
-from src.training.Discriminator import Discriminator
-from src.training.Generator import Generator, generate_images
+# Import directly from the trainer module to ensure identical model instances
 from src.training.Globals import *
 from src.training.Loader import load_image_test
+from src.training.Trainer import (
+    discriminator,
+    discriminator_optimizer,
+    generate_images,
+    generator,
+    generator_optimizer,
+)
 
 # Path to checkpoint directory
 checkpoint_dir = f"{PATH}/footprints/checkpoint"
@@ -21,28 +27,21 @@ def main():
         print(f"Error: Checkpoint directory {checkpoint_dir} does not exist.")
         return
 
-    # Create models with same architecture as during training
-    generator = Generator()
-    discriminator = Discriminator()
+    # Use the same model instances from the trainer module
+    print("Using models from trainer module")
 
-    print("Models initialized")
-
-    # Create optimizers and checkpoint variables
-    generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-    discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+    # Create epoch and step counters for checkpoint compatibility
     epoch_counter = tf.Variable(
         0, trainable=False, dtype=tf.int64, name="epoch_counter"
     )
     step_counter = tf.Variable(0, trainable=False, dtype=tf.int64, name="step_counter")
 
-    # Set up checkpoint
+    # Set up checkpoint using the same models as training
     checkpoint = tf.train.Checkpoint(
         generator_optimizer=generator_optimizer,
         discriminator_optimizer=discriminator_optimizer,
         generator=generator,
         discriminator=discriminator,
-        epoch_counter=epoch_counter,
-        step_counter=step_counter,
     )
 
     # Try to restore the checkpoint
@@ -62,9 +61,7 @@ def main():
                 print("No valid checkpoint found.")
                 return
 
-        print(
-            f"Model restored to epoch {epoch_counter.numpy()}, step {step_counter.numpy()}"
-        )
+        print("Model restored successfully")
     except Exception as e:
         print(f"Error restoring checkpoint: {e}")
         return

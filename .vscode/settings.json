@@ -14,7 +14,8 @@
     ],
     "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
     "python.terminal.launchArgs": [
-        "-c",
+        "-c", 
         "import sys; sys.path.append('${workspaceFolder}')"
-    ]
+    ],
+    "python.terminal.activateEnvironment": true
 }
