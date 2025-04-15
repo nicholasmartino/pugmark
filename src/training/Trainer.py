@@ -229,11 +229,7 @@ def fit(train_ds, test_ds, steps=STEPS):
                 }
             )
 
-        # Save (checkpoint) the model every 5k steps
-        if (step_value + 1) % 5000 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
-
-        # Save the full generator model every 10k steps (architecture + weights)
+        # Save the full generator model every 10k steps
         if (step_value + 1) % 10000 == 0:
             saved_model_path = f"{model_dir}/model_{step_value+1}"
             tf.saved_model.save(generator, saved_model_path)
