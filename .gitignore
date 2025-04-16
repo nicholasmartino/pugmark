@@ -6,3 +6,5 @@ data*
 .env
 secrets*
 __pycache__
+*cache*
+test_outputs
