@@ -11,7 +11,7 @@ from src.training.Loader import load_image_test
 model_dir = f"{PATH}/footprints/model"
 
 
-def find_latest_model(use_cache=True, cache_dir="./model_cache"):
+def find_latest_model(use_cache=True, cache_dir="cache/model_cache"):
     """Find the latest saved model with simple caching by model name and timestamp."""
     # Early return if model directory doesn't exist
     if not tf.io.gfile.exists(model_dir):
@@ -156,7 +156,7 @@ def main(num_samples=3, use_cache=True):
     print("Starting model test...")
 
     # Create output directory
-    output_dir = "test_outputs"
+    output_dir = "cache/test_outputs"
     os.makedirs(output_dir, exist_ok=True)
 
     # Find and load the latest model
