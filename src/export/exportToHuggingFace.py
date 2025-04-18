@@ -1,11 +1,8 @@
-import json
 import os
 import shutil
 
 import tensorflow as tf
 from huggingface_hub import HfApi, login
-
-from src.training.Generator import Generator
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
@@ -15,14 +12,13 @@ def export_and_deploy_to_huggingface(
     export_dir=None, repo_id=None, push_to_hub=False, model_path=None
 ):
     """
-    Export the model in Hugging Face compatible format and optionally deploy to HF Hub.
-    Uses the local JSON model instead of GCS checkpoints.
+    Export the saved model in Hugging Face compatible format and optionally deploy to HF Hub.
 
     Args:
         export_dir: Directory to save the exported model
         repo_id: Hugging Face Hub repository ID (e.g., 'username/model-name')
         push_to_hub: Whether to push to Hugging Face Hub
-        model_path: Path to the local model JSON file
+        model_path: Path to the saved model directory
     """
     # Set default export directory in data folder
     if export_dir is None:
@@ -31,30 +27,32 @@ def export_and_deploy_to_huggingface(
     # Create directory structure
     os.makedirs(export_dir, exist_ok=True)
 
-    # Create and initialize the model
-    generator = Generator()
-    dummy_input = tf.random.normal([1, 256, 256, 3])
-    _ = generator(dummy_input, training=False)
-
-    # Default model path or use provided path
+    # Use the model path from the find_latest_model function
     if model_path is None:
-        model_path = os.path.join("data", "model", "model.json")
+        from src.export.simple_test import find_latest_model
 
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Local model not found at {model_path}")
+        model_path = find_latest_model(use_cache=True)
 
-    # Load and set weights
-    with open(model_path, "r") as f:
-        weights = json.load(f)
+    if not model_path or not tf.io.gfile.exists(model_path):
+        raise FileNotFoundError(f"Saved model not found at {model_path}")
 
-    for layer in generator.layers:
-        if layer.name in weights:
-            layer.set_weights(weights[layer.name])
+    # Copy the saved model to the export directory
+    tf_model_path = os.path.join(export_dir, "tf_model")
+    print(f"Copying saved model from {model_path} to {tf_model_path}")
 
-    # Save the model in TF SavedModel format
-    model_path = os.path.join(export_dir, "tf_model")
-    print(f"Saving model to {model_path}")
-    tf.saved_model.save(generator, model_path)
+    # Remove existing model if present
+    if os.path.exists(tf_model_path):
+        shutil.rmtree(tf_model_path)
+
+    # Copy the model files
+    for item in tf.io.gfile.listdir(model_path):
+        src_path = os.path.join(model_path, item)
+        dst_path = os.path.join(tf_model_path, item)
+
+        if tf.io.gfile.isdir(src_path):
+            shutil.copytree(src_path, dst_path)
+        else:
+            shutil.copy2(src_path, dst_path)
 
     # Copy template files
     copy_templates(export_dir)
@@ -86,7 +84,7 @@ def deploy_to_hub(model_dir, repo_id):
 
     # Create or ensure repository exists
     api = HfApi()
-    repo_url = api.create_repo(
+    api.create_repo(
         repo_id=repo_id,
         private=False,
         exist_ok=True,
@@ -137,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-path",
         type=str,
-        help="Path to the local model.json file (default: data/model/model.json)",
+        help="Path to the saved model directory",
     )
 
     args = parser.parse_args()
