@@ -4,81 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
+from src.export.model_utils import load_model
 from src.training.Globals import *
 from src.training.Loader import load_image_test
-
-# Path to saved model directory
-model_dir = f"{PATH}/footprints/model"
-
-
-def find_latest_model(use_cache=True, cache_dir="cache/model_cache"):
-    """Find the latest saved model with simple caching by model name and timestamp."""
-    # Early return if model directory doesn't exist
-    if not tf.io.gfile.exists(model_dir):
-        print("Model directory not found")
-        return None
-
-    # Get all model directories
-    subdirs = [
-        d
-        for d in tf.io.gfile.listdir(model_dir)
-        if tf.io.gfile.isdir(os.path.join(model_dir, d))
-    ]
-
-    # Early return if no model subdirectories
-    if not subdirs:
-        print("No model subdirectories found")
-        return None
-
-    # Find the latest model directory (model_XXXXX format)
-    latest_dir = sorted(
-        subdirs,
-        key=lambda x: (
-            int(x.split("_")[-1].rstrip("/")) if x.startswith("model_") else 0
-        ),
-    )[-1]
-
-    cloud_model_path = os.path.join(model_dir, latest_dir)
-
-    # If not using cache, return cloud path directly
-    if not use_cache:
-        return cloud_model_path
-
-    # Get model timestamp for cache key
-    try:
-        stat_info = tf.io.gfile.stat(cloud_model_path)
-        timestamp = (
-            stat_info.mtime_nsec
-            if hasattr(stat_info, "mtime_nsec")
-            else stat_info.mtime
-        )
-    except Exception as e:
-        print(f"Error getting timestamp for {latest_dir}: {e}")
-        return None
-
-    # Cache path for this specific model version
-    cache_path = os.path.join(cache_dir, f"{latest_dir}_{timestamp}")
-
-    # Use cached version if it exists
-    if os.path.exists(cache_path):
-        print(f"Using cached model: {cache_path}")
-        return cache_path
-
-    # Create cache directory and download model
-    print(f"Caching model from cloud to: {cache_path}")
-    os.makedirs(cache_path, exist_ok=True)
-
-    # Copy model files to cache
-    try:
-        files = tf.io.gfile.glob(os.path.join(cloud_model_path, "*"))
-        for src_file in files:
-            dst_file = os.path.join(cache_path, os.path.basename(src_file))
-            tf.io.gfile.copy(src_file, dst_file, overwrite=False)
-        return cache_path
-    except Exception as e:
-        print(f"Error caching model: {e}")
-        # Fall back to cloud path if caching fails
-        return cloud_model_path
 
 
 def generate_images(model, test_input, tar, save_path=None):
@@ -159,21 +87,10 @@ def main(num_samples=3, use_cache=True):
     output_dir = "cache/test_outputs"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Find and load the latest model
-    model_path = find_latest_model(use_cache=use_cache)
-    if not model_path:
-        print("No model found to test")
+    # Load the model using the centralized utility
+    generator = load_model(use_cache=use_cache)
+    if generator is None:
         return
-
-    # Load the model
-    print(f"Loading model from: {model_path}")
-    try:
-        generator = tf.saved_model.load(model_path)
-    except Exception as e:
-        print(f"Failed to load model: {e}")
-        return
-
-    print("Model loaded successfully!")
 
     # Load test dataset
     test_dataset = tf.data.Dataset.list_files(f"{PATH}/footprints/test/*.png")

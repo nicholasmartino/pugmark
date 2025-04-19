@@ -4,13 +4,13 @@ import shutil
 import tensorflow as tf
 from huggingface_hub import HfApi, login
 
+from src.export.model_utils import find_latest_model
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
 
 
-def export_and_deploy_to_huggingface(
-    export_dir=None, repo_id=None, push_to_hub=False, model_path=None
-):
+def export_and_deploy_to_huggingface(export_dir=None, repo_id=None, push_to_hub=False):
     """
     Export the saved model in Hugging Face compatible format and optionally deploy to HF Hub.
 
@@ -27,11 +27,8 @@ def export_and_deploy_to_huggingface(
     # Create directory structure
     os.makedirs(export_dir, exist_ok=True)
 
-    # Use the model path from the find_latest_model function
-    if model_path is None:
-        from src.export.simple_test import find_latest_model
-
-        model_path = find_latest_model(use_cache=True)
+    # Use the centralized model utility to find the latest model
+    model_path = find_latest_model(use_cache=True)
 
     if not model_path or not tf.io.gfile.exists(model_path):
         raise FileNotFoundError(f"Saved model not found at {model_path}")
@@ -98,7 +95,7 @@ def deploy_to_hub(model_dir, repo_id):
         folder_path=model_dir,
         repo_id=repo_id,
         repo_type="space",
-        commit_message="Upload model files",
+        commit_message="Upload footprints pix2pix model",
     )
     print(f"Successfully deployed to: https://huggingface.co/spaces/{repo_id}")
 
@@ -114,35 +111,14 @@ def copy_templates(export_dir):
 
 
 if __name__ == "__main__":
-    import argparse
+    # Hard-coded configuration
+    export_dir = "cache/model_cache"  # Fixed syntax error
+    repo_id = "nicholasmartino/pugmark"  # Replace with your preferred repo ID
+    push_to_hub = False  # Set to True when ready to deploy
 
-    parser = argparse.ArgumentParser(
-        description="Export and deploy TensorFlow model to Hugging Face Hub"
-    )
-    parser.add_argument(
-        "--push-to-hub", action="store_true", help="Push the model to Hugging Face Hub"
-    )
-    parser.add_argument(
-        "--repo-id",
-        type=str,
-        help="Hugging Face Hub repository ID (username/model-name)",
-    )
-    parser.add_argument(
-        "--export-dir",
-        type=str,
-        help="Local directory to save the exported model (default: data/hf_export)",
-    )
-    parser.add_argument(
-        "--model-path",
-        type=str,
-        help="Path to the saved model directory",
-    )
-
-    args = parser.parse_args()
-
+    # Run the export and deploy function with hard-coded values
     export_and_deploy_to_huggingface(
-        export_dir=args.export_dir,
-        repo_id=args.repo_id,
-        push_to_hub=args.push_to_hub,
-        model_path=args.model_path,
+        export_dir=export_dir,
+        repo_id=repo_id,
+        push_to_hub=push_to_hub,
     )
