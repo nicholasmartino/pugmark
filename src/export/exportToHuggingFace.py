@@ -10,7 +10,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
 
 
-def export_and_deploy_to_huggingface(export_dir=None, repo_id=None, push_to_hub=False):
+def export_and_deploy_to_huggingface(export_dir=None, repo_id=None):
     """
     Export the saved model in Hugging Face compatible format and optionally deploy to HF Hub.
 
@@ -56,12 +56,11 @@ def export_and_deploy_to_huggingface(export_dir=None, repo_id=None, push_to_hub=
     print(f"Model exported successfully to {export_dir}")
 
     # Push to Hugging Face Hub if requested
-    if push_to_hub:
-        if not repo_id:
-            raise ValueError(
-                "Repository ID (repo_id) must be provided when push_to_hub is True"
-            )
-        deploy_to_hub(export_dir, repo_id)
+    if not repo_id:
+        raise ValueError(
+            "Repository ID (repo_id) must be provided when push_to_hub is True"
+        )
+    deploy_to_hub(export_dir, repo_id)
 
 
 def deploy_to_hub(model_dir, repo_id):
@@ -114,11 +113,9 @@ if __name__ == "__main__":
     # Hard-coded configuration
     export_dir = "cache/model_cache"  # Fixed syntax error
     repo_id = "nicholasmartino/pugmark"  # Replace with your preferred repo ID
-    push_to_hub = False  # Set to True when ready to deploy
 
     # Run the export and deploy function with hard-coded values
     export_and_deploy_to_huggingface(
         export_dir=export_dir,
         repo_id=repo_id,
-        push_to_hub=push_to_hub,
     )
