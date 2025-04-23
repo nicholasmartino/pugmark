@@ -3,10 +3,12 @@ import shutil
 
 from huggingface_hub import HfApi, login
 
-from src.export.model_utils import find_latest_model
+# No longer need this import since we're using a fixed path
+# from src.export.model_utils import find_latest_model
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
+MODEL_PATH = os.path.join("data", "model")  # Fixed model path
 
 
 def export_and_deploy_to_huggingface(export_dir=None, repo_id=None):
@@ -14,22 +16,60 @@ def export_and_deploy_to_huggingface(export_dir=None, repo_id=None):
     Export the saved model in Hugging Face compatible format and deploy to HF Hub.
 
     Args:
-        export_dir: Directory to save the template files (model already cached)
+        export_dir: Directory to save the exported files
         repo_id: Hugging Face Hub repository ID (e.g., 'username/model-name')
     """
-    # Find the already-cached model
-    model_path = find_latest_model(use_cache=True)
-    if not model_path:
-        raise FileNotFoundError("No model found to export")
+    # Set default export directory if not provided
+    if export_dir is None:
+        export_dir = os.path.join("cache", "hf_export")
 
-    # Use model directory as the export directory - add templates directly there
-    print(f"Using cached model from: {model_path}")
-    copy_templates(model_path)
+    # Create and clean the export directory
+    os.makedirs(export_dir, exist_ok=True)
+
+    # Use the fixed model path instead of finding it
+    model_path = MODEL_PATH
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model directory not found at {model_path}")
+
+    if not os.path.exists(os.path.join(model_path, "fingerprint.pb")):
+        raise FileNotFoundError(f"fingerprint.pb not found in {model_path}")
+
+    print(f"Using model from: {model_path}")
+    print(f"Model files: {os.listdir(model_path)}")
+
+    # Create the tf_model directory in the export directory
+    tf_model_path = os.path.join(export_dir, "tf_model")
+
+    # Remove existing tf_model directory if it exists
+    if os.path.exists(tf_model_path):
+        shutil.rmtree(tf_model_path)
+
+    # Create the tf_model directory
+    os.makedirs(tf_model_path, exist_ok=True)
+
+    # Copy all files from model_path to tf_model_path
+    print(f"Copying model files from {model_path} to {tf_model_path}")
+    for item in os.listdir(model_path):
+        src = os.path.join(model_path, item)
+        dst = os.path.join(tf_model_path, item)
+
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+    # Verify the copied model structure
+    copied_files = os.listdir(tf_model_path)
+    print(f"Files copied to {tf_model_path}: {copied_files}")
+
+    # Copy template files to the export directory
+    copy_templates(export_dir)
+    print(f"Export preparation complete at {export_dir}")
 
     # Deploy to Hugging Face Hub
     if not repo_id:
         raise ValueError("Repository ID (repo_id) must be provided")
-    deploy_to_hub(model_path, repo_id)
+    deploy_to_hub(export_dir, repo_id)
 
 
 def deploy_to_hub(model_dir, repo_id):
@@ -80,7 +120,11 @@ def copy_templates(export_dir):
 
 if __name__ == "__main__":
     # Hard-coded configuration
+    export_dir = "cache/hf_export"  # Directory for export
     repo_id = "nicholasmartino/pugmark"  # Your Hugging Face repository ID
 
     # Run the export and deploy function
-    export_and_deploy_to_huggingface(repo_id=repo_id)
+    export_and_deploy_to_huggingface(
+        export_dir=export_dir,
+        repo_id=repo_id,
+    )
