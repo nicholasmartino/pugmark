@@ -120,7 +120,6 @@ def load_generator():
 
 
 generator = load_generator()
-tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
 # Generator loss
 
@@ -138,7 +137,6 @@ loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 # region DISCRIMINATOR
 
 discriminator = Discriminator()
-tf.keras.utils.plot_model(discriminator, show_shapes=True)
 
 # endregion DISCRIMINATOR
 
