@@ -9,7 +9,7 @@ from google.cloud import storage
 from tqdm import tqdm
 
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
-from src.training.Generator import Generator, calculate_generator_loss, generate_images
+from src.training.Generator import Generator, calculate_generator_loss
 from src.training.Globals import *
 from src.training.Loader import load_image_test, load_image_train
 
@@ -86,7 +86,7 @@ def load_generator():
         # tf.io.gfile works with both local and GCS paths
         if not tf.io.gfile.exists(model_dir):
             print("No model directories found. Starting fresh training.")
-            return Generator()
+            return Generator(), 0
 
         # Find all model_XXXXX directories
         model_dirs = [
@@ -97,7 +97,7 @@ def load_generator():
 
         if not model_dirs:
             print("No model directories found. Starting fresh training.")
-            return Generator()
+            return Generator(), 0
 
         # Sort by step number and get the latest
         latest_model_dir = sorted(
@@ -112,14 +112,14 @@ def load_generator():
         # Extract step number from model directory name
         step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
         print(f"Resuming training from step {step_num}")
-        return generator
+        return generator, step_num
     except Exception as e:
         print(f"Error loading model: {e}")
         print("Starting fresh training.")
-        return Generator()
+        return Generator(), 0
 
 
-generator = load_generator()
+generator, start_step = load_generator()
 
 # Generator loss
 
@@ -158,13 +158,6 @@ checkpoint = tf.train.Checkpoint(
 )
 
 # endregion CHECKPOINT
-
-# region TEST
-
-for example_input, example_target in test_dataset.take(1):
-    generate_images(generator, example_input, example_target)
-
-# endregion TEST
 
 # region TRAINING
 
@@ -244,12 +237,12 @@ def fit(train_ds, test_ds, steps=STEPS):
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
-        # Convert step tensor to Python int
-        step_value = int(step.numpy())
+        # Convert step tensor to Python int and add the start step
+        step_value = int(step.numpy()) + start_step
 
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
-            input_image, target, step
+            input_image, target, step_value
         )
 
         # Update progress bar with metrics and step info
