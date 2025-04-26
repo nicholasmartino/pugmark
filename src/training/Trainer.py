@@ -225,12 +225,10 @@ def fit(train_ds, test_ds, steps=STEPS):
                 latest_model_path = os.path.join(model_dir, latest_model_dir)
 
                 print(f"Loading model from: {latest_model_path}")
-                # Load using tf.saved_model.load (same as how we save it)
-                loaded_model = tf.saved_model.load(latest_model_path)
-                # Transfer weights to our generator
-                generator.set_weights([var.numpy() for var in loaded_model.variables])
+                # Just use the model directly - simple_test.py shows this works
+                generator = tf.saved_model.load(latest_model_path)
 
-                # Remove any trailing slash when extracting the step number
+                # Extract step number from model directory name
                 step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
                 print(f"Resuming training from step {step_num}")
             else:
