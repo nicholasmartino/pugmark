@@ -11,6 +11,27 @@ from src.training.Loader import load_image_test
 model_dir = f"{PATH}/footprints/model"
 
 
+def copy_recursive(src_dir, dst_dir):
+    """Recursively copy files and directories."""
+    # Create destination directory
+    os.makedirs(dst_dir, exist_ok=True)
+
+    # List all items in source directory
+    items = tf.io.gfile.glob(os.path.join(src_dir, "*"))
+
+    for item in items:
+        # Get the base name for the destination
+        name = os.path.basename(item)
+        dst_path = os.path.join(dst_dir, name)
+
+        # If it's a directory, recurse
+        if tf.io.gfile.isdir(item):
+            copy_recursive(item, dst_path)
+        else:
+            # Copy the file
+            tf.io.gfile.copy(item, dst_path, overwrite=True)
+
+
 def find_latest_model(use_cache=True, cache_dir="cache/model_cache"):
     """Find the latest saved model with simple caching by model name and timestamp."""
     # Early return if model directory doesn't exist
@@ -70,10 +91,7 @@ def find_latest_model(use_cache=True, cache_dir="cache/model_cache"):
 
     # Copy model files to cache
     try:
-        files = tf.io.gfile.glob(os.path.join(cloud_model_path, "*"))
-        for src_file in files:
-            dst_file = os.path.join(cache_path, os.path.basename(src_file))
-            tf.io.gfile.copy(src_file, dst_file, overwrite=False)
+        copy_recursive(cloud_model_path, cache_path)
         return cache_path
     except Exception as e:
         print(f"Error caching model: {e}")
