@@ -47,18 +47,11 @@ else:
 if __name__ == "__main__":
     try:
         # Use absolute imports to ensure consistency
-        from src.training.Trainer import checkpoint_dir, train
+        from src.training.Trainer import train
 
-        # Check for existing checkpoint
-        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-        if latest_checkpoint:
-            print(f"Found checkpoint: {latest_checkpoint}")
-            print("Resuming training...")
-            # The actual restore happens in the fit function
-            train()
-        else:
-            print("No checkpoint found. Starting fresh training.")
-            train()
+        # Start training, loading from the latest saved model if available
+        print("Starting training (will resume from latest saved model if available)...")
+        train()
 
         logger.info("Training completed successfully")
     except Exception as e:

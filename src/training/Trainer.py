@@ -204,11 +204,30 @@ def fit(train_ds, test_ds, steps=STEPS):
     # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
-    # Get the latest checkpoint
-    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-    if latest_checkpoint:
-        checkpoint.restore(latest_checkpoint)
-        print(f"Restored checkpoint: {latest_checkpoint}")
+    # Check if there are any saved models and load the latest one
+    import glob
+    import re
+
+    saved_models = glob.glob(f"{model_dir}/model_*")
+    if saved_models:
+        # Extract step numbers from model paths and find the latest one
+        step_numbers = [
+            int(re.search(r"model_(\d+)", path).group(1))
+            for path in saved_models
+            if re.search(r"model_(\d+)", path)
+        ]
+        if step_numbers:
+            latest_step = max(step_numbers)
+            latest_model_path = f"{model_dir}/model_{latest_step}"
+            print(f"Loading latest model from {latest_model_path}")
+
+            # Load the saved model weights into our generator
+            loaded_model = tf.keras.models.load_model(latest_model_path)
+            generator.set_weights(loaded_model.get_weights())
+
+            print(f"Resuming training from step {latest_step}")
+    else:
+        print("No saved models found. Starting fresh training.")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         # Convert step tensor to Python int
