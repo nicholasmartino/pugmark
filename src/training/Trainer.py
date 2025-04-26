@@ -220,7 +220,7 @@ def fit(train_ds, test_ds, steps=STEPS):
             if model_dirs:
                 # Sort by step number and get the latest
                 latest_model_dir = sorted(
-                    model_dirs, key=lambda x: int(x.split("_")[1])
+                    model_dirs, key=lambda x: int(x.split("_")[1].rstrip("/"))
                 )[-1]
                 latest_model_path = os.path.join(model_dir, latest_model_dir)
 
@@ -230,7 +230,8 @@ def fit(train_ds, test_ds, steps=STEPS):
                 # Transfer weights to our generator
                 generator.set_weights([var.numpy() for var in loaded_model.variables])
 
-                step_num = int(latest_model_dir.split("_")[1])
+                # Remove any trailing slash when extracting the step number
+                step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
                 print(f"Resuming training from step {step_num}")
             else:
                 print("No model directories found. Starting fresh training.")
