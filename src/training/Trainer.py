@@ -106,8 +106,21 @@ def load_generator():
         latest_model_path = os.path.join(model_dir, latest_model_dir)
 
         print(f"Loading model from: {latest_model_path}")
-        # Just use the model directly - simple_test.py shows this works
-        generator = tf.saved_model.load(latest_model_path)
+
+        # Create a new Generator instance
+        generator = Generator()
+
+        # Load the saved model
+        saved_model = tf.saved_model.load(latest_model_path)
+
+        # Transfer weights from saved model to new generator
+        # First, get a test input to trace the model
+        test_input = tf.zeros([1, 256, 256, 3])
+        _ = generator(test_input)  # Build the model
+
+        # Now we can set the weights
+        for saved_var, new_var in zip(saved_model.variables, generator.variables):
+            new_var.assign(saved_var)
 
         # Extract step number from model directory name
         step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
@@ -188,18 +201,7 @@ def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
 def train_step(input_image, target, step):
     """Training step function optimized to minimize retracing"""
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        # Handle both new and loaded models
-        if (
-            hasattr(generator, "signatures")
-            and "serving_default" in generator.signatures
-        ):
-            infer = generator.signatures["serving_default"]
-            # Get the input name from the signature
-            input_name = list(infer.structured_input_signature[1].keys())[0]
-            generated = infer(**{input_name: input_image})
-            generated = list(generated.values())[0]
-        else:
-            generated = generator(input_image, training=True)
+        generated = generator(input_image, training=True)
 
         target_score = discriminator([input_image, target], training=True)
         generated_score = discriminator([input_image, generated], training=True)
