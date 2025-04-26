@@ -18,7 +18,7 @@ cd /content/pugmark
 echo "PYTHONPATH=/content/pugmark" > .env
 
 # Install requirements
-pip install --no-deps --upgrade -r src/training/requirements.txt
+pip install --no-deps --upgrade -r requirements.txt
 
 # Make sure python-dotenv is installed for environment variable loading
 pip install python-dotenv
