@@ -1,4 +1,5 @@
 import os
+import traceback
 
 import gradio as gr
 import numpy as np
@@ -6,83 +7,118 @@ import tensorflow as tf
 from PIL import Image
 
 # Path to the model directory
-MODEL_DIR = "tf_model"
+MODEL_DIR = "tf_model/model_40000/_0"
 
 
-# Load the model with better error handling
 def load_model():
     try:
-        # Check if model directory exists
         if not os.path.exists(MODEL_DIR):
             print(f"Model directory '{MODEL_DIR}' does not exist")
             return None
 
-        # List model directory contents
         files = os.listdir(MODEL_DIR)
         print(f"Files in model directory: {files}")
 
-        # Check for saved_model.pb
-        if "saved_model.pb" not in files:
-            print(f"saved_model.pb not found in {MODEL_DIR}")
-            return None
-
-        # Load the model
         model = tf.saved_model.load(MODEL_DIR)
         print("Model loaded successfully!")
 
-        # Get appropriate signature
-        if "serving_default" in model.signatures:
-            infer = model.signatures["serving_default"]
-            print("Using 'serving_default' signature")
-        else:
-            # Use first available signature
-            sig_keys = list(model.signatures.keys())
-            if sig_keys:
-                infer = model.signatures[sig_keys[0]]
-                print(f"Using '{sig_keys[0]}' signature")
-            else:
-                print("No signatures found in model")
-                return None
+        # Print model info
+        print("Model structure:", model)
+        if hasattr(model, "signatures"):
+            print("Available signatures:", list(model.signatures.keys()))
 
-        return infer
+            # Get the default signature
+            serving_default = model.signatures["serving_default"]
+
+            # Print input specs
+            print("\nModel Input Specifications:")
+            for input_name, input_tensor in serving_default.structured_input_signature[
+                1
+            ].items():
+                print(
+                    f"Input '{input_name}': shape={input_tensor.shape}, dtype={input_tensor.dtype}"
+                )
+
+            # Print output specs
+            print("\nModel Output Specifications:")
+            for (
+                output_name,
+                output_tensor,
+            ) in serving_default.structured_outputs.items():
+                print(
+                    f"Output '{output_name}': shape={output_tensor.shape}, dtype={output_tensor.dtype}"
+                )
+
+        return model
     except Exception as e:
         print(f"Error loading model: {e}")
         return None
 
 
 # Load the model
-inference_fn = load_model()
+model = load_model()
 
 
 def process_image(input_image):
-    """Process an input satellite image to generate building footprints"""
-    # Check if model loaded successfully
-    if inference_fn is None:
-        print("Model not available for inference")
-        return np.zeros((256, 256, 3), dtype=np.uint8)
-
-    if input_image is None:
-        return np.zeros((256, 256, 3), dtype=np.uint8)
-
     try:
-        # Resize to 256x256
-        img = Image.fromarray(input_image).resize((256, 256))
-
-        # Normalize to [-1, 1]
-        input_array = np.array(img).astype(np.float32) / 127.5 - 1
-        input_tensor = tf.convert_to_tensor(input_array[np.newaxis, ...])
-
+        print(f"Received input of type: {type(input_image)}")
+        if input_image is None:
+            print("No input image provided.")
+            return None
+        # Validate input is a numpy array
+        if not isinstance(input_image, np.ndarray):
+            raise ValueError(f"Input is not a numpy array. Got: {type(input_image)}")
+        print(f"Input image shape: {input_image.shape}, dtype: {input_image.dtype}")
+        # Ensure 3 channels
+        if input_image.ndim == 2:
+            input_image = np.stack([input_image] * 3, axis=-1)
+        elif input_image.shape[-1] == 4:
+            input_image = input_image[..., :3]
+        # Convert to PIL Image
+        img = Image.fromarray(input_image.astype(np.uint8))
+        # Resize to model input size (256x256)
+        model_input_size = (256, 256)
+        img = img.resize(model_input_size, Image.Resampling.LANCZOS)
+        print(f"Resized to {model_input_size} for model input")
+        # Convert to numpy array and normalize to [-1, 1]
+        img_array = np.array(img).astype(np.float32)
+        img_array = (img_array / 127.5) - 1.0
+        print(
+            f"Normalized array shape: {img_array.shape}, Range: [{img_array.min():.2f}, {img_array.max():.2f}]"
+        )
+        # Add batch dimension
+        img_array = np.expand_dims(img_array, 0)
+        print(f"Input tensor shape: {img_array.shape}")
         # Run inference
-        output = inference_fn(input_tensor)
-        output_tensor = list(output.values())[0]
-
-        # Convert output to image (from [-1, 1] to [0, 255])
-        output_array = ((output_tensor[0].numpy() + 1) * 127.5).astype(np.uint8)
-        return output_array
+        if model is None:
+            print("Model not loaded!")
+            return None
+        print("Running model inference...")
+        # Use the default signature if available
+        if hasattr(model, "signatures") and "serving_default" in model.signatures:
+            infer = model.signatures["serving_default"]
+            predictions = infer(tf.constant(img_array))
+            # Get first output tensor
+            predictions = list(predictions.values())[0]
+        else:
+            predictions = model(img_array)
+        print(f"Raw prediction shape: {predictions.shape}")
+        # Denormalize output to [0, 255]
+        output = ((predictions[0] + 1.0) * 127.5).numpy().clip(0, 255).astype(np.uint8)
+        print(
+            f"Denormalized output shape: {output.shape}, Range: [{output.min()}, {output.max()}]"
+        )
+        # Resize to final output size (128x128 -> 256x256 for display)
+        output_size = (256, 256)
+        output_img = Image.fromarray(output).resize(
+            output_size, Image.Resampling.LANCZOS
+        )
+        print(f"Final output size: {output_img.size}")
+        return np.array(output_img)
     except Exception as e:
-        print(f"Error during inference: {e}")
-        # Return blank image on error
-        return np.zeros((256, 256, 3), dtype=np.uint8)
+        print(f"Error processing image: {str(e)}")
+        traceback.print_exc()
+        return None
 
 
 # Create a placeholder image for examples
@@ -101,23 +137,36 @@ for i in range(1, 3):
 
 # Create the Gradio interface
 with gr.Blocks(css="footer {visibility: hidden}") as demo:
-    gr.Markdown("# Metro Vancouver Building Footprint Generator")
+    gr.Markdown("# Building Footprint Generator")
 
-    if inference_fn is None:
+    if model is None:
         gr.Markdown(
             "⚠️ **Model not loaded!** The app will run but cannot generate predictions."
         )
 
     gr.Markdown(
-        "Upload a satellite image to generate building footprints. The model works best with RGB images of urban areas."
+        """
+        Upload a satellite image to generate building footprints. 
+        
+        **Instructions:**
+        1. Upload a satellite image (ideally 256x256 pixels)
+        2. Click 'Generate Footprints'
+        3. The model will generate building outlines
+        
+        The model works best with RGB satellite images of urban areas.
+        """
     )
 
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(label="Input Satellite Image", type="numpy")
+            input_image = gr.Image(
+                label="Input Satellite Image", type="numpy", height=256, width=256
+            )
             submit_btn = gr.Button("Generate Footprints")
         with gr.Column():
-            output_image = gr.Image(label="Building Footprints", type="numpy")
+            output_image = gr.Image(
+                label="Building Footprints", type="numpy", height=256, width=256
+            )
 
     # Examples
     gr.Markdown("## Examples")

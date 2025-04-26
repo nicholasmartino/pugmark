@@ -1,5 +1,5 @@
 ---
-title: Metro Vancouver Building Footprints
+title: Building Footprints
 emoji: 🏙️
 colorFrom: blue
 colorTo: green
@@ -9,7 +9,7 @@ app_file: app.py
 pinned: false
 ---
 
-# Metro Vancouver Building Footprints
+# Building Footprints
 
 This is a pix2pix model for generating building footprints from satellite imagery. The model was trained on Metro Vancouver data and can be used to predict building footprints from aerial images.
 
@@ -20,7 +20,7 @@ Upload a satellite image to get the predicted building footprint. The model work
 ## Model
 
 - Architecture: pix2pix GAN
-- Training Dataset: Metro Vancouver satellite imagery and building footprints
+- Training Dataset: Satellite imagery and building footprints
 - Input: RGB aerial/satellite image
 - Output: Building footprint mask
 

@@ -8,7 +8,7 @@ from huggingface_hub import HfApi, login
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
-MODEL_PATH = os.path.join("data", "model")  # Fixed model path
+MODEL_PATH = os.path.join("cache", "model_cache")  # Fixed model path
 
 
 def export_and_deploy_to_huggingface(export_dir=None, repo_id=None):
@@ -30,9 +30,6 @@ def export_and_deploy_to_huggingface(export_dir=None, repo_id=None):
     model_path = MODEL_PATH
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model directory not found at {model_path}")
-
-    if not os.path.exists(os.path.join(model_path, "fingerprint.pb")):
-        raise FileNotFoundError(f"fingerprint.pb not found in {model_path}")
 
     print(f"Using model from: {model_path}")
     print(f"Model files: {os.listdir(model_path)}")
