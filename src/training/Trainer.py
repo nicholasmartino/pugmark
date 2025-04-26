@@ -113,14 +113,24 @@ def load_generator():
         # Load the saved model
         saved_model = tf.saved_model.load(latest_model_path)
 
-        # Transfer weights from saved model to new generator
-        # First, get a test input to trace the model
-        test_input = tf.zeros([1, 256, 256, 3])
-        _ = generator(test_input)  # Build the model
+        # Get the weights from the saved model's signature
+        if (
+            hasattr(saved_model, "signatures")
+            and "serving_default" in saved_model.signatures
+        ):
+            # Get the weights from the signature
+            signature = saved_model.signatures["serving_default"]
+            # Create a test input to trace the model
+            test_input = tf.zeros([1, 256, 256, 3])
+            _ = generator(test_input)  # Build the model
 
-        # Now we can set the weights
-        for saved_var, new_var in zip(saved_model.variables, generator.variables):
-            new_var.assign(saved_var)
+            # Get the weights from the signature's variables
+            for var in signature.variables:
+                # Find the corresponding variable in the new generator
+                for new_var in generator.variables:
+                    if var.name == new_var.name:
+                        new_var.assign(var)
+                        break
 
         # Extract step number from model directory name
         step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
