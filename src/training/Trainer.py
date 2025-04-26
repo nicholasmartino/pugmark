@@ -78,7 +78,7 @@ test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 # region GENERATOR
 
-generator, start_step = Generator()
+generator = Generator()
 
 # Generator loss
 
