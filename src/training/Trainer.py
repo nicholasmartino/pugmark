@@ -194,7 +194,9 @@ def train_step(input_image, target, step):
             and "serving_default" in generator.signatures
         ):
             infer = generator.signatures["serving_default"]
-            generated = infer(tf.constant(input_image))
+            # Get the input name from the signature
+            input_name = list(infer.structured_input_signature[1].keys())[0]
+            generated = infer(**{input_name: input_image})
             generated = list(generated.values())[0]
         else:
             generated = generator(input_image, training=True)
