@@ -78,7 +78,48 @@ test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 # region GENERATOR
 
-generator = Generator()
+
+def load_generator():
+    # Try to load the latest saved model
+    print(f"Looking for saved models in: {model_dir}")
+    try:
+        # tf.io.gfile works with both local and GCS paths
+        if not tf.io.gfile.exists(model_dir):
+            print("No model directories found. Starting fresh training.")
+            return Generator()
+
+        # Find all model_XXXXX directories
+        model_dirs = [
+            d
+            for d in tf.io.gfile.listdir(model_dir)
+            if d.startswith("model_") and tf.io.gfile.isdir(os.path.join(model_dir, d))
+        ]
+
+        if not model_dirs:
+            print("No model directories found. Starting fresh training.")
+            return Generator()
+
+        # Sort by step number and get the latest
+        latest_model_dir = sorted(
+            model_dirs, key=lambda x: int(x.split("_")[1].rstrip("/"))
+        )[-1]
+        latest_model_path = os.path.join(model_dir, latest_model_dir)
+
+        print(f"Loading model from: {latest_model_path}")
+        # Just use the model directly - simple_test.py shows this works
+        generator = tf.saved_model.load(latest_model_path)
+
+        # Extract step number from model directory name
+        step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
+        print(f"Resuming training from step {step_num}")
+        return generator
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        print("Starting fresh training.")
+        return Generator()
+
+
+generator = load_generator()
 tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
 # Generator loss
@@ -203,43 +244,6 @@ def fit(train_ds, test_ds, steps=STEPS):
 
     # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
-
-    # Try to load the latest saved model
-    print(f"Looking for saved models in: {model_dir}")
-    try:
-        # tf.io.gfile works with both local and GCS paths
-        if tf.io.gfile.exists(model_dir):
-            # Find all model_XXXXX directories
-            model_dirs = [
-                d
-                for d in tf.io.gfile.listdir(model_dir)
-                if d.startswith("model_")
-                and tf.io.gfile.isdir(os.path.join(model_dir, d))
-            ]
-
-            if model_dirs:
-                # Sort by step number and get the latest
-                latest_model_dir = sorted(
-                    model_dirs, key=lambda x: int(x.split("_")[1].rstrip("/"))
-                )[-1]
-                latest_model_path = os.path.join(model_dir, latest_model_dir)
-
-                print(f"Loading model from: {latest_model_path}")
-                # Just use the model directly - simple_test.py shows this works
-                generator = tf.saved_model.load(latest_model_path)
-
-                # Extract step number from model directory name
-                step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
-                print(f"Resuming training from step {step_num}")
-            else:
-                print("No model directories found. Starting fresh training.")
-        else:
-            print(
-                f"Model directory {model_dir} does not exist. Starting fresh training."
-            )
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        print("Starting fresh training.")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         # Convert step tensor to Python int
