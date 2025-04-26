@@ -1,4 +1,5 @@
 import os
+import time
 import traceback
 
 import gradio as gr
@@ -61,6 +62,7 @@ model = load_model()
 
 def process_image(input_image):
     try:
+        t0 = time.time()
         print(f"Received input of type: {type(input_image)}")
         if input_image is None:
             print("No input image provided.")
@@ -79,7 +81,8 @@ def process_image(input_image):
         # Resize to model input size (256x256)
         model_input_size = (256, 256)
         img = img.resize(model_input_size, Image.Resampling.LANCZOS)
-        print(f"Resized to {model_input_size} for model input")
+        t1 = time.time()
+        print(f"Preprocessing time: {t1 - t0:.3f} seconds")
         # Convert to numpy array and normalize to [-1, 1]
         img_array = np.array(img).astype(np.float32)
         img_array = (img_array / 127.5) - 1.0
@@ -94,15 +97,16 @@ def process_image(input_image):
             print("Model not loaded!")
             return None
         print("Running model inference...")
+        t2 = time.time()
         # Use the default signature if available
         if hasattr(model, "signatures") and "serving_default" in model.signatures:
             infer = model.signatures["serving_default"]
             predictions = infer(tf.constant(img_array))
-            # Get first output tensor
             predictions = list(predictions.values())[0]
         else:
             predictions = model(img_array)
-        print(f"Raw prediction shape: {predictions.shape}")
+        t3 = time.time()
+        print(f"Inference time: {t3 - t2:.3f} seconds")
         # Denormalize output to [0, 255]
         output = ((predictions[0] + 1.0) * 127.5).numpy().clip(0, 255).astype(np.uint8)
         print(
@@ -113,7 +117,9 @@ def process_image(input_image):
         output_img = Image.fromarray(output).resize(
             output_size, Image.Resampling.LANCZOS
         )
-        print(f"Final output size: {output_img.size}")
+        t4 = time.time()
+        print(f"Postprocessing time: {t4 - t3:.3f} seconds")
+        print(f"Total time: {t4 - t0:.3f} seconds")
         return np.array(output_img)
     except Exception as e:
         print(f"Error processing image: {str(e)}")
