@@ -9,7 +9,7 @@ from google.cloud import storage
 from tqdm import tqdm
 
 from src.training.Discriminator import Discriminator, calculate_discriminator_loss
-from src.training.Generator import Generator, calculate_generator_loss
+from src.training.Generator import Generator, calculate_generator_loss, generate_images
 from src.training.Globals import *
 from src.training.Loader import load_image_test, load_image_train
 
@@ -79,6 +79,7 @@ test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 # region GENERATOR
 
 generator = Generator()
+tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
 # Generator loss
 
@@ -96,6 +97,7 @@ loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 # region DISCRIMINATOR
 
 discriminator = Discriminator()
+tf.keras.utils.plot_model(discriminator, show_shapes=True)
 
 # endregion DISCRIMINATOR
 
@@ -117,6 +119,13 @@ checkpoint = tf.train.Checkpoint(
 )
 
 # endregion CHECKPOINT
+
+# region TEST
+
+for example_input, example_target in test_dataset.take(1):
+    generate_images(generator, example_input, example_target)
+
+# endregion TEST
 
 # region TRAINING
 
@@ -195,13 +204,19 @@ def fit(train_ds, test_ds, steps=STEPS):
     # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
+    # Get the latest checkpoint
+    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    if latest_checkpoint:
+        checkpoint.restore(latest_checkpoint)
+        print(f"Restored checkpoint: {latest_checkpoint}")
+
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
-        # Convert step tensor to Python int and add the start step
+        # Convert step tensor to Python int
         step_value = int(step.numpy())
 
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
-            input_image, target, step_value
+            input_image, target, step
         )
 
         # Update progress bar with metrics and step info
