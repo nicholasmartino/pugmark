@@ -204,30 +204,43 @@ def fit(train_ds, test_ds, steps=STEPS):
     # Create progress bar with display_step parameter
     progress_bar = tqdm(total=steps, desc="Training", unit="step")
 
-    # Check if there are any saved models and load the latest one
-    import glob
-    import re
+    # Try to load the latest saved model
+    print(f"Looking for saved models in: {model_dir}")
+    try:
+        # tf.io.gfile works with both local and GCS paths
+        if tf.io.gfile.exists(model_dir):
+            # Find all model_XXXXX directories
+            model_dirs = [
+                d
+                for d in tf.io.gfile.listdir(model_dir)
+                if d.startswith("model_")
+                and tf.io.gfile.isdir(os.path.join(model_dir, d))
+            ]
 
-    saved_models = glob.glob(f"{model_dir}/model_*")
-    if saved_models:
-        # Extract step numbers from model paths and find the latest one
-        step_numbers = [
-            int(re.search(r"model_(\d+)", path).group(1))
-            for path in saved_models
-            if re.search(r"model_(\d+)", path)
-        ]
-        if step_numbers:
-            latest_step = max(step_numbers)
-            latest_model_path = f"{model_dir}/model_{latest_step}"
-            print(f"Loading latest model from {latest_model_path}")
+            if model_dirs:
+                # Sort by step number and get the latest
+                latest_model_dir = sorted(
+                    model_dirs, key=lambda x: int(x.split("_")[1])
+                )[-1]
+                latest_model_path = os.path.join(model_dir, latest_model_dir)
 
-            # Load the saved model weights into our generator
-            loaded_model = tf.keras.models.load_model(latest_model_path)
-            generator.set_weights(loaded_model.get_weights())
+                print(f"Loading model from: {latest_model_path}")
+                # Load using tf.saved_model.load (same as how we save it)
+                loaded_model = tf.saved_model.load(latest_model_path)
+                # Transfer weights to our generator
+                generator.set_weights([var.numpy() for var in loaded_model.variables])
 
-            print(f"Resuming training from step {latest_step}")
-    else:
-        print("No saved models found. Starting fresh training.")
+                step_num = int(latest_model_dir.split("_")[1])
+                print(f"Resuming training from step {step_num}")
+            else:
+                print("No model directories found. Starting fresh training.")
+        else:
+            print(
+                f"Model directory {model_dir} does not exist. Starting fresh training."
+            )
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        print("Starting fresh training.")
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         # Convert step tensor to Python int
