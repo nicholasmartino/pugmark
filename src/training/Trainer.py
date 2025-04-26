@@ -78,71 +78,7 @@ test_dataset = test_dataset.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 # region GENERATOR
 
-
-def load_generator():
-    # Try to load the latest saved model
-    print(f"Looking for saved models in: {model_dir}")
-    try:
-        # tf.io.gfile works with both local and GCS paths
-        if not tf.io.gfile.exists(model_dir):
-            print("No model directories found. Starting fresh training.")
-            return Generator(), 0
-
-        # Find all model_XXXXX directories
-        model_dirs = [
-            d
-            for d in tf.io.gfile.listdir(model_dir)
-            if d.startswith("model_") and tf.io.gfile.isdir(os.path.join(model_dir, d))
-        ]
-
-        if not model_dirs:
-            print("No model directories found. Starting fresh training.")
-            return Generator(), 0
-
-        # Sort by step number and get the latest
-        latest_model_dir = sorted(
-            model_dirs, key=lambda x: int(x.split("_")[1].rstrip("/"))
-        )[-1]
-        latest_model_path = os.path.join(model_dir, latest_model_dir)
-
-        print(f"Loading model from: {latest_model_path}")
-
-        # Create a new Generator instance
-        generator = Generator()
-
-        # Load the saved model
-        saved_model = tf.saved_model.load(latest_model_path)
-
-        # Get the weights from the saved model's signature
-        if (
-            hasattr(saved_model, "signatures")
-            and "serving_default" in saved_model.signatures
-        ):
-            # Get the weights from the signature
-            signature = saved_model.signatures["serving_default"]
-            # Create a test input to trace the model
-            test_input = tf.zeros([1, 256, 256, 3])
-            _ = generator(test_input)  # Build the model
-
-            # Get the weights from the signature's variables
-            for var in signature.variables:
-                # Find the corresponding variable in the new generator
-                for new_var in generator.variables:
-                    if var.name == new_var.name:
-                        new_var.assign(var)
-                        break
-
-        # Extract step number from model directory name
-        step_num = int(latest_model_dir.split("_")[1].rstrip("/"))
-        print(f"Resuming training from step {step_num}")
-        return generator, step_num
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        print("Starting fresh training.")
-        return Generator(), 0
-
-
-generator, start_step = load_generator()
+generator, start_step = Generator()
 
 # Generator loss
 
