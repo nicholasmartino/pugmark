@@ -197,7 +197,7 @@ def fit(train_ds, test_ds, steps=STEPS):
 
     for step, (input_image, target) in train_ds.repeat().take(steps).enumerate():
         # Convert step tensor to Python int and add the start step
-        step_value = int(step.numpy()) + start_step
+        step_value = int(step.numpy())
 
         # Train and update metrics
         gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss = train_step(
