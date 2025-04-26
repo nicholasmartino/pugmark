@@ -188,7 +188,8 @@ def log_metrics(gen_total_loss, gen_gan_loss, gen_l1_loss, disc_loss, step):
 def train_step(input_image, target, step):
     """Training step function optimized to minimize retracing"""
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        generated = generator(input_image, training=True)
+        # Use the model's __call__ method directly instead of calling it as a function
+        generated = generator.__call__(input_image, training=True)
 
         target_score = discriminator([input_image, target], training=True)
         generated_score = discriminator([input_image, generated], training=True)
