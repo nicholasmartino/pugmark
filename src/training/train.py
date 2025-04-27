@@ -49,8 +49,7 @@ if __name__ == "__main__":
         # Use absolute imports to ensure consistency
         from src.training.Trainer import train
 
-        # Start training, loading from the latest saved model if available
-        print("Starting training (will resume from latest saved model if available)...")
+        print("Starting training...")
         train()
 
         logger.info("Training completed successfully")
