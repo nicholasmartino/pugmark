@@ -243,13 +243,13 @@ def export_parcels(parcel: Parcels, directory: str):
 if __name__ == "__main__":
     data_dir = "gs://metro-vancouver-regional-district"
     building_source_path = f"{data_dir}/statistics_canada/building_footprints.feather"
-    plot_target_dir = f"{data_dir}/processed/footprints"
+    plot_target_dir = f"{data_dir}/pugmark/footprints"
 
     buildings = load_buildings(building_source_path)
     parcels = gpd.read_feather(f"{data_dir}/bc_assessment/parcel.feather")
 
     processed_parcels = calculate_fsr(parcels, buildings)
-    export_parcels(processed_parcels, f"{data_dir}/processed/samples")
+    export_parcels(processed_parcels, f"{data_dir}/pugmark/samples")
 
     fabric = join_parcel_id(processed_parcels.gdf, buildings)
     plot_parcels(fabric.parcels.gdf, fabric.buildings.gdf, plot_target_dir)
